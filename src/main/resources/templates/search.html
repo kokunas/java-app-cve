@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Buscar cliente</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Búsqueda rápida de clientes</h1>
+    <p class="muted">Uso interno de oficina: localiza clientes por nombre o NIF.</p>
+
+    <form class="search-box" th:action="@{/search}" method="get">
+        <input type="text" name="query" th:value="${query}" placeholder="Nombre o NIF del cliente..."/>
+        <button type="submit">Buscar</button>
+    </form>
+
+    <div class="card" th:if="${query != null and !query.isEmpty()}">
+        <h2>Resultados</h2>
+        <table th:if="${!results.isEmpty()}">
+            <thead>
+            <tr>
+                <th th:each="key : ${results[0].keySet()}" th:text="${key}">-</th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="row : ${results}">
+                <td th:each="key : ${results[0].keySet()}" th:text="${row.get(key)}">-</td>
+            </tr>
+            </tbody>
+        </table>
+        <p class="muted" th:if="${results.isEmpty()}">Sin resultados para "<span th:text="${query}"></span>".</p>
+    </div>
+</div>
+</body>
+</html>

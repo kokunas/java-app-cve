@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banco-kokunas
+  labels:
+    app.kubernetes.io/part-of: banco-kokunas
+    concert.ibm.com/environment: demo

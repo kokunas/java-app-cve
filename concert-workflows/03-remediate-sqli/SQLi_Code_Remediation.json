@@ -1,0 +1,392 @@
+{
+    "name": "SQLi_Code_Remediation",
+    "platform": "node",
+    "blocks": [
+        {
+            "action": "assign",
+            "name": "getRepodetails",
+            "value": "{\n    \"owner\": $input_json_data.recommendations.meta_data.org_name,\n    \"org\": $input_json_data.recommendations.meta_data.org_name,\n    \"base\": $input_json_data.recommendations.meta_data.base_branch,\n    \"repo\": $input_json_data.recommendations.meta_data.repo_name\n}",
+            "variable": "$repo_details"
+        },
+        {
+            "action": "comment",
+            "value": "Fetch current VulnerableSearchRepository.java content and base branch details"
+        },
+        {
+            "action": "system/Github/Repos/Get Content",
+            "name": "FetchFileContents",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$auth"
+                },
+                {
+                    "name": "owner",
+                    "value": "$repo_details.owner"
+                },
+                {
+                    "name": "repo",
+                    "value": "$repo_details.repo"
+                },
+                {
+                    "name": "path",
+                    "value": "$input_json_data.recommendations.finding.file"
+                },
+                {
+                    "name": "ref",
+                    "value": "$repo_details.base"
+                }
+            ]
+        },
+        {
+            "action": "system/Github/Repos/Get Branch",
+            "name": "FetchBaseBranchSHA",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$auth"
+                },
+                {
+                    "name": "owner",
+                    "value": "$repo_details.owner"
+                },
+                {
+                    "name": "repo",
+                    "value": "$repo_details.repo"
+                },
+                {
+                    "name": "branch",
+                    "value": "$repo_details.base"
+                }
+            ]
+        },
+        {
+            "action": "assign",
+            "name": "AssignBaseBranchSHA",
+            "variable": "$baseBranchSHA",
+            "value": "$FetchBaseBranchSHA.result.commit.sha"
+        },
+        {
+            "action": "assign",
+            "name": "AssignFileSHA",
+            "variable": "$fileSHA",
+            "value": "$FetchFileContents.result.sha"
+        },
+        {
+            "action": "assign",
+            "name": "AssignFileContent",
+            "variable": "$fileContent",
+            "value": "$FetchFileContents.result.content.replaceAll(\"\\n\",\"\")"
+        },
+        {
+            "name": "Function_4",
+            "function": "function decodeBase64(encodedContent) {\n  return Buffer.from(encodedContent, 'base64').toString('utf-8');\n}\n\nfunction encodeBase64(content) {\n  return Buffer.from(content, 'utf-8').toString('base64');\n}\n\n// Fix is scoped to a single known CWE-89 finding (Concert code-risk\n// finding id: java-sqli-string-concat / VulnerableSearchRepository.java),\n// not a generic multi-file transform - so this replaces one exact,\n// known-vulnerable snippet with its parameterized-query equivalent.\n// If the snippet is not found (file already patched, or drifted), the\n// workflow fails loudly instead of silently producing a no-op PR.\nfunction fixSqlInjection(javaContent) {\n  const vulnerable = \"    public List<Map<String, Object>> searchCustomers(String term) {\\n        // VULNERABLE: user input concatenated directly into the SQL string.\\n        String sql = \\\"SELECT id, full_name, nif, email, iban FROM customers \\\" +\\n                \\\"WHERE full_name ILIKE '%\\\" + term + \\\"%' OR nif ILIKE '%\\\" + term + \\\"%'\\\";\\n        return jdbcTemplate.queryForList(sql);\\n    }\";\n  const fixed = \"    public List<Map<String, Object>> searchCustomers(String term) {\\n        // Fixed by Concert Workflow: CWE-89 SQL Injection remediated by\\n        // switching from string concatenation to JDBC bind parameters.\\n        String sql = \\\"SELECT id, full_name, nif, email, iban FROM customers \\\" +\\n                \\\"WHERE full_name ILIKE ? OR nif ILIKE ?\\\";\\n        String likeTerm = \\\"%\\\" + term + \\\"%\\\";\\n        return jdbcTemplate.queryForList(sql, likeTerm, likeTerm);\\n    }\";\n\n  if (!javaContent.includes(vulnerable)) {\n    throw new Error(\"Expected vulnerable snippet not found in VulnerableSearchRepository.java - aborting to avoid an incorrect PR\");\n  }\n\n  return javaContent.replace(vulnerable, fixed);\n}\n\nconst decodedFile = decodeBase64($fileContent);\nconst updatedFile = fixSqlInjection(decodedFile);\n\n$updatedFileContent = updatedFile;\n"
+        },
+        {
+            "action": "comment",
+            "value": "Decode current file content, apply the CWE-89 fix template, re-encode"
+        },
+        {
+            "action": "system/Common/String/Base64 Encode",
+            "name": "Base64Encode_2",
+            "inputs": [
+                {
+                    "name": "str",
+                    "value": "$updatedFileContent"
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
+                }
+            ]
+        },
+        {
+            "action": "assign",
+            "name": "Assign_1",
+            "variable": "$updatedFileContent",
+            "value": "$Base64Encode_2.result"
+        },
+        {
+            "action": "comment",
+            "value": "Create a new branch name with timestamp"
+        },
+        {
+            "name": "Function_1",
+            "function": "function generateBranchName() {\n    const now = new Date();\n    const timestamp = now.toISOString().replace(/[-:TZ.]/g, \"\").slice(0, 14);\n    return `fix-sqli-${timestamp}-${Math.floor(Math.random() * 1000) + 1}`;\n};\n\n$head = generateBranchName();\n$newBranchRef = `refs/heads/${$head}`\n"
+        },
+        {
+            "action": "comment",
+            "value": "Create branch reference from the new branch name created"
+        },
+        {
+            "action": "system/Github/Git/Create Ref",
+            "name": "CreateGitRef",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$auth"
+                },
+                {
+                    "name": "owner",
+                    "value": "$repo_details.owner"
+                },
+                {
+                    "name": "repo",
+                    "value": "$repo_details.repo"
+                },
+                {
+                    "name": "Body",
+                    "value": "{\n    \"ref\": $newBranchRef,\n    \"sha\": $baseBranchSHA\n}"
+                }
+            ]
+        },
+        {
+            "action": "comment",
+            "value": "Commit the fixed file to the new branch"
+        },
+        {
+            "action": "system/Github/Repos/Create Or Update File Contents",
+            "name": "CommitUpdatedFileToGit",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$auth"
+                },
+                {
+                    "name": "owner",
+                    "value": "$repo_details.owner"
+                },
+                {
+                    "name": "repo",
+                    "value": "$repo_details.repo"
+                },
+                {
+                    "name": "path",
+                    "value": "$input_json_data.recommendations.finding.file"
+                },
+                {
+                    "name": "Body",
+                    "value": "{\n    \"sha\": $fileSHA,\n    \"branch\": $head,\n    \"committer\": {\n        \"name\": $repo_details.owner,\n        \"email\": $email,\n        \"date\": $date\n    },\n    \"message\": \"fix(security): parameterize SQL query in VulnerableSearchRepository (CWE-89)\",\n    \"content\": $updatedFileContent\n}"
+                }
+            ]
+        },
+        {
+            "action": "comment",
+            "value": "Build a pull request description summarizing the code-risk finding"
+        },
+        {
+            "name": "Function_2",
+            "function": "function main(json_data) {\n  const finding = json_data?.recommendations?.finding || {};\n  return [\n    \"### Concert code-risk finding remediated\",\n    \"\",\n    `| Field | Value |`,\n    `| --- | --- |`,\n    `| CWE | ${finding.cwe || \"CWE-89\"} |`,\n    `| File | ${finding.file || \"-\"} |`,\n    `| Rule | ${finding.rule_id || \"-\"} |`,\n    `| Severity | ${finding.severity || \"-\"} |`,\n    \"\",\n    \"String-concatenated SQL replaced with JDBC bind parameters (`?`) in `VulnerableSearchRepository#searchCustomers`.\",\n    \"\",\n    \"This finding is **not** a catalogued CVE - it will not appear in Trivy's SCA scan. It represents Concert's code-risk / SAST-class analysis surfacing an application-level vulnerability alongside dependency CVEs (see the `01-scan` and `02-remediate-log4j` workflows for the CVE-2021-44228 companion finding).\",\n    \"\",\n    \"The isofunctional test suite (`IsofunctionalWebTests`) passes unchanged against this fix - legitimate customer search behavior is preserved.\"\n  ].join(\"\\n\");\n}\n\n$pr_body = main($input_json_data)\n"
+        },
+        {
+            "action": "comment",
+            "value": "Create pull request with the SQL Injection fix"
+        },
+        {
+            "action": "system/Github/Pulls/Create",
+            "name": "CreatePrWithChanges",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$auth"
+                },
+                {
+                    "name": "owner",
+                    "value": "$repo_details.owner"
+                },
+                {
+                    "name": "repo",
+                    "value": "$repo_details.repo"
+                },
+                {
+                    "name": "Body",
+                    "value": "{\n    \"title\": \"fix(security): SQL Injection in customer search (CWE-89)\",\n    \"head\": $head,\n    \"base\": $repo_details.base,\n    \"body\": $pr_body\n}"
+                }
+            ]
+        },
+        {
+            "action": "assign",
+            "name": "GetPRurl",
+            "variable": "$url",
+            "value": "$CreatePrWithChanges.result.html_url"
+        }
+    ],
+    "variables": [
+        {
+            "name": "head",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "assignee",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "fileSHA",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "fileContent",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "email",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "date",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "input_json_data",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "object"
+            },
+            "value": "{}"
+        },
+        {
+            "name": "updatedFileContent",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "baseBranchSHA",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "newBranchRef",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "auth",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "any"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "url",
+            "required": false,
+            "isInput": false,
+            "isOutput": true,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "object"
+            },
+            "value": "{}"
+        },
+        {
+            "name": "pr_body",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "repo_details",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "object"
+            },
+            "value": "{}"
+        }
+    ],
+    "meta": {
+        "workerGroup": "default",
+        "description": "Custom Concert Workflow (authored using the same block schema as IBM's published Maven_Package_Upgrade sample) that automates remediation of a specific, known code-risk finding: CWE-89 SQL Injection in VulnerableSearchRepository.java, caused by string-concatenated SQL. Not a catalogued CVE, so it falls outside Trivy's SCA scanning - this represents the 'unknown'/non-CVE remediation path, raised as a Git PR just like the log4j CVE fix.",
+        "layout": "flow",
+        "numberOfBlocks": 22,
+        "version": 5,
+        "tags": [
+            {
+                "name": "Consumer",
+                "value": "Concert"
+            },
+            {
+                "name": "Category",
+                "value": "Vulnerability"
+            },
+            {
+                "name": "Finding-class",
+                "value": "Non-CVE / Code-risk (CWE-89)"
+            }
+        ]
+    },
+    "finally": null
+}

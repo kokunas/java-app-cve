@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Nueva transferencia</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Nueva transferencia</h1>
+    <div class="card">
+        <form class="form-card" th:action="@{/transfers}" method="post">
+            <label>Cliente</label>
+            <select name="customerId" required>
+                <option th:each="c : ${customers}" th:value="${c.id}" th:text="${c.fullName + ' (' + c.nif + ')'}"></option>
+            </select>
+
+            <label>IBAN origen</label>
+            <input type="text" name="originIban" placeholder="ES91 2100 0418 4502 0005 1332" required/>
+
+            <label>IBAN destino</label>
+            <input type="text" name="destinationIban" placeholder="ES10 0049 1500 0512 3456 7892" required/>
+
+            <label>Importe (€)</label>
+            <input type="number" step="0.01" name="amount" required/>
+
+            <label>Concepto</label>
+            <input type="text" name="concept" placeholder="Ej. Alquiler julio"/>
+
+            <button type="submit" class="btn-gold">Realizar transferencia</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

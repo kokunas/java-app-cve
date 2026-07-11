@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Transferencia realizada</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Transferencia realizada</h1>
+    <div class="card">
+        <div class="result-box">
+            <p><strong>ID:</strong> <span th:text="${transfer.id}">-</span></p>
+            <p><strong>De:</strong> <span th:text="${transfer.originIban}">-</span></p>
+            <p><strong>A:</strong> <span th:text="${transfer.destinationIban}">-</span></p>
+            <p><strong>Importe:</strong> <span th:text="${'€' + transfer.amount}">-</span></p>
+            <p><strong>Estado:</strong>
+                <span class="badge" th:classappend="${'badge-' + #strings.toLowerCase(transfer.status)}" th:text="${transfer.status}">-</span>
+            </p>
+        </div>
+        <p style="margin-top:1rem"><a class="btn" th:href="@{/transfers}">Ver todas las transferencias</a></p>
+    </div>
+</div>
+</body>
+</html>

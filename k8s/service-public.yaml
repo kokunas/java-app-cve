@@ -1,0 +1,46 @@
+# PUBLIC access point: the branch-office web UI (dashboard, mortgage
+# simulator, transfers, customer search) is exposed to the internet.
+# This is the endpoint that should surface in Concert's Arena view as the
+# public entry point of the "bankdemo" application.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bankdemo-app
+  namespace: banco-kokunas
+  labels:
+    app.kubernetes.io/name: bankdemo
+    app.kubernetes.io/component: web
+    app.kubernetes.io/part-of: banco-kokunas
+    concert.ibm.com/exposure: public
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: bankdemo
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bankdemo-app
+  namespace: banco-kokunas
+  labels:
+    app.kubernetes.io/name: bankdemo
+    app.kubernetes.io/part-of: banco-kokunas
+    concert.ibm.com/exposure: public
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: bankdemo.demo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bankdemo-app
+                port:
+                  number: 80

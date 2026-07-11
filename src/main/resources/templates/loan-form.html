@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Simular hipoteca</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Simulador de hipoteca</h1>
+
+    <div class="card" th:if="${monthlyPayment != null}">
+        <div class="result-box">
+            <p><strong>Cuota mensual estimada:</strong> <span th:text="${'€' + monthlyPayment}">-</span></p>
+            <p><strong>Elegibilidad (LTV 80%):</strong>
+                <span class="badge" th:classappend="${'badge-' + #strings.toLowerCase(eligibility)}" th:text="${eligibility}">-</span>
+            </p>
+        </div>
+    </div>
+
+    <div class="card">
+        <form class="form-card" th:action="@{/loans/simulate}" method="post">
+            <label>Valor del inmueble (€)</label>
+            <input type="number" step="0.01" name="propertyValue" th:value="${propertyValue}" required/>
+
+            <label>Importe solicitado (€)</label>
+            <input type="number" step="0.01" name="requestedAmount" th:value="${requestedAmount}" required/>
+
+            <label>Tipo de interés nominal anual (%)</label>
+            <input type="number" step="0.01" name="interestRate" th:value="${interestRate}" required/>
+
+            <label>Plazo (años)</label>
+            <input type="number" name="termYears" th:value="${termYears}" required/>
+
+            <button type="submit">Calcular cuota</button>
+        </form>
+    </div>
+
+    <div class="card" th:if="${customers != null and !customers.isEmpty()}">
+        <h2>Formalizar solicitud</h2>
+        <form class="form-card" th:action="@{/loans/apply}" method="post">
+            <label>Cliente</label>
+            <select name="customerId" required>
+                <option th:each="c : ${customers}" th:value="${c.id}" th:text="${c.fullName + ' (' + c.nif + ')'}"></option>
+            </select>
+
+            <label>Valor del inmueble (€)</label>
+            <input type="number" step="0.01" name="propertyValue" th:value="${propertyValue}" required/>
+
+            <label>Importe solicitado (€)</label>
+            <input type="number" step="0.01" name="requestedAmount" th:value="${requestedAmount}" required/>
+
+            <label>Tipo de interés nominal anual (%)</label>
+            <input type="number" step="0.01" name="interestRate" th:value="${interestRate}" required/>
+
+            <label>Plazo (años)</label>
+            <input type="number" name="termYears" th:value="${termYears}" required/>
+
+            <button type="submit" class="btn-gold">Enviar solicitud</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

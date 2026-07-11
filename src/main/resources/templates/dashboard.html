@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Panel</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Panel general</h1>
+    <p class="muted">Actividad de banca minorista: hipotecas y transferencias.</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">Clientes</div>
+            <div class="value" th:text="${totalCustomers}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Hipotecas totales</div>
+            <div class="value" th:text="${totalLoans}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Hipotecas aprobadas</div>
+            <div class="value" th:text="${approvedLoans}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Hipotecas pendientes</div>
+            <div class="value" th:text="${pendingLoans}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Volumen hipotecario</div>
+            <div class="value" th:text="${'€' + #numbers.formatDecimal(totalMortgageVolume, 1, 'POINT', 0, 'COMMA')}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Transferencias</div>
+            <div class="value" th:text="${totalTransfers}">0</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Importe transferido</div>
+            <div class="value" th:text="${'€' + #numbers.formatDecimal(totalTransferredAmount, 1, 'POINT', 2, 'COMMA')}">0</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Últimas solicitudes de hipoteca</h2>
+        <table>
+            <thead>
+            <tr><th>Cliente</th><th>Importe solicitado</th><th>Plazo</th><th>Estado</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="loan : ${recentLoans}">
+                <td th:text="${loan.customer.fullName}">-</td>
+                <td th:text="${'€' + loan.requestedAmount}">-</td>
+                <td th:text="${loan.termYears + ' años'}">-</td>
+                <td>
+                    <span class="badge"
+                          th:classappend="${'badge-' + #strings.toLowerCase(loan.status)}"
+                          th:text="${loan.status}">-</span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Últimas transferencias</h2>
+        <table>
+            <thead>
+            <tr><th>Origen</th><th>Destino</th><th>Importe</th><th>Concepto</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="t : ${recentTransfers}">
+                <td th:text="${t.originIban}">-</td>
+                <td th:text="${t.destinationIban}">-</td>
+                <td th:text="${'€' + t.amount}">-</td>
+                <td th:text="${t.concept}">-</td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

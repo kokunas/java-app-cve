@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bankdemo-db
+    environment:
+      POSTGRES_DB: bankdemo
+      POSTGRES_USER: bankdemo
+      POSTGRES_PASSWORD: bankdemo
+    ports:
+      - "5432:5432"
+    volumes:
+      - bankdemo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bankdemo -d bankdemo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - bankdemo-internal
+
+  app:
+    build: .
+    container_name: bankdemo-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: bankdemo
+      DB_USER: bankdemo
+      DB_PASSWORD: bankdemo
+    ports:
+      - "8080:8080"
+    networks:
+      - bankdemo-internal
+      - bankdemo-public
+
+networks:
+  bankdemo-public:
+    driver: bridge
+  bankdemo-internal:
+    driver: bridge
+    internal: true
+
+volumes:
+  bankdemo-db-data:

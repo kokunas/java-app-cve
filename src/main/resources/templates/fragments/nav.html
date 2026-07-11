@@ -1,0 +1,14 @@
+<nav xmlns:th="http://www.thymeleaf.org" th:fragment="nav" class="navbar">
+    <div class="navbar-brand">
+        <span class="logo">&#127974;</span>
+        <span class="brand-name">Banco Kokunas</span>
+    </div>
+    <div class="navbar-links">
+        <a th:href="@{/}">Panel</a>
+        <a th:href="@{/loans}">Hipotecas</a>
+        <a th:href="@{/loans/new}">Simular hipoteca</a>
+        <a th:href="@{/transfers}">Transferencias</a>
+        <a th:href="@{/transfers/new}">Nueva transferencia</a>
+        <a th:href="@{/search}">Buscar cliente</a>
+    </div>
+</nav>

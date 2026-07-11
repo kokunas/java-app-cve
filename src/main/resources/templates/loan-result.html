@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Solicitud enviada</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Solicitud registrada</h1>
+    <div class="card">
+        <div class="result-box">
+            <p><strong>Nº de expediente:</strong> <span th:text="${loan.id}">-</span></p>
+            <p><strong>Cliente:</strong> <span th:text="${loan.customer.fullName}">-</span></p>
+            <p><strong>Importe:</strong> <span th:text="${'€' + loan.requestedAmount}">-</span></p>
+            <p><strong>Cuota mensual:</strong> <span th:text="${'€' + loan.monthlyPayment}">-</span></p>
+            <p><strong>Estado:</strong>
+                <span class="badge" th:classappend="${'badge-' + #strings.toLowerCase(loan.status)}" th:text="${loan.status}">-</span>
+            </p>
+        </div>
+        <p style="margin-top:1rem"><a class="btn" th:href="@{/loans}">Ver todas las hipotecas</a></p>
+    </div>
+</div>
+</body>
+</html>

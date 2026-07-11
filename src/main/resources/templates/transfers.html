@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Transferencias</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Transferencias</h1>
+    <p><a class="btn btn-gold" th:href="@{/transfers/new}">+ Nueva transferencia</a></p>
+
+    <div class="card">
+        <p><strong>Total transferido:</strong> <span th:text="${'€' + total}">-</span></p>
+        <table>
+            <thead>
+            <tr><th>ID</th><th>Cliente</th><th>Origen</th><th>Destino</th><th>Importe</th><th>Concepto</th><th>Estado</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="t : ${transfers}">
+                <td th:text="${t.id}">-</td>
+                <td th:text="${t.customer.fullName}">-</td>
+                <td th:text="${t.originIban}">-</td>
+                <td th:text="${t.destinationIban}">-</td>
+                <td th:text="${'€' + t.amount}">-</td>
+                <td th:text="${t.concept}">-</td>
+                <td>
+                    <span class="badge" th:classappend="${'badge-' + #strings.toLowerCase(t.status)}" th:text="${t.status}">-</span>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>

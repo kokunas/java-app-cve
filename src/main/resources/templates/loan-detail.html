@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Banco Kokunas - Detalle de hipoteca</title>
+    <link rel="stylesheet" th:href="@{/css/style.css}"/>
+</head>
+<body>
+<nav th:replace="~{fragments/nav :: nav}"></nav>
+<div class="container">
+    <h1 class="page-title">Expediente hipotecario #<span th:text="${loan.id}"></span></h1>
+    <div class="card">
+        <p><strong>Cliente:</strong> <span th:text="${loan.customer.fullName}">-</span> (<span th:text="${loan.customer.nif}">-</span>)</p>
+        <p><strong>Valor del inmueble:</strong> <span th:text="${'€' + loan.propertyValue}">-</span></p>
+        <p><strong>Importe solicitado:</strong> <span th:text="${'€' + loan.requestedAmount}">-</span></p>
+        <p><strong>Tipo de interés:</strong> <span th:text="${loan.interestRate + '%'}">-</span></p>
+        <p><strong>Plazo:</strong> <span th:text="${loan.termYears + ' años'}">-</span></p>
+        <p><strong>Cuota mensual:</strong> <span th:text="${'€' + loan.monthlyPayment}">-</span></p>
+        <p><strong>Estado:</strong>
+            <span class="badge" th:classappend="${'badge-' + #strings.toLowerCase(loan.status)}" th:text="${loan.status}">-</span>
+        </p>
+        <p><a class="btn" th:href="@{/loans}">&larr; Volver al listado</a></p>
+    </div>
+</div>
+</body>
+</html>
