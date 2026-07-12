@@ -44,6 +44,10 @@ Concert Workflows console -> Workflows -> Import -> `Verify_And_Notify.zip`
 
 ## Trigger payload for this demo
 
+`input_json_data` and `notify_email` are already pre-filled as defaults on
+the workflow - only the SMTP credentials and `gh_api_token` need to be
+supplied at trigger time.
+
 ```json
 {
   "input_json_data": {

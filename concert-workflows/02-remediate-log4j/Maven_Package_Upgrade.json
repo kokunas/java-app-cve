@@ -239,7 +239,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokunas\""
         },
         {
             "name": "pomXMLSHA",
@@ -272,7 +272,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokuna+democoncert@gmail.com\""
         },
         {
             "name": "date",
@@ -294,7 +294,7 @@
             "type": {
                 "type": "object"
             },
-            "value": "{}"
+            "value": "{\"recommendations\": {\"meta_data\": {\"org_name\": \"kokunas\", \"repo_name\": \"java-app-cve\", \"base_branch\": \"main\"}, \"changes\": [{\"target\": \"org.apache.logging.log4j:log4j-core\", \"previous_version\": \"2.14.1\", \"new_version\": \"2.24.3\"}, {\"target\": \"org.apache.logging.log4j:log4j-api\", \"previous_version\": \"2.14.1\", \"new_version\": \"2.24.3\"}]}}"
         },
         {
             "name": "updatedPomFileContent",

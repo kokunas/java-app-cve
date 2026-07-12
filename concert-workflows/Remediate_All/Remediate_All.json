@@ -175,7 +175,7 @@
             "type": {
                 "type": "object"
             },
-            "value": "{}"
+            "value": "{\"recommendations\": {\"meta_data\": {\"org_name\": \"kokunas\", \"repo_name\": \"java-app-cve\", \"base_branch\": \"main\"}, \"changes\": [{\"target\": \"org.apache.logging.log4j:log4j-core\", \"previous_version\": \"2.14.1\", \"new_version\": \"2.24.3\"}, {\"target\": \"org.apache.logging.log4j:log4j-api\", \"previous_version\": \"2.14.1\", \"new_version\": \"2.24.3\"}], \"finding\": {\"file\": \"src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java\", \"cwe\": \"CWE-89\", \"rule_id\": \"java-sqli-string-concat-jdbctemplate\", \"severity\": \"HIGH\"}}}"
         },
         {
             "name": "assignee",
@@ -186,7 +186,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokunas\""
         },
         {
             "name": "email",
@@ -197,7 +197,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokuna+democoncert@gmail.com\""
         },
         {
             "name": "date",
@@ -230,7 +230,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"https://github.com/kokunas/java-app-cve\""
         },
         {
             "name": "gh_api_token",
@@ -267,7 +267,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokuna+democoncert@gmail.com\""
         },
         {
             "name": "smtp_host",

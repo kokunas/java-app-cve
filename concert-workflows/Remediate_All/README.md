@@ -39,6 +39,12 @@ the SMTP credentials from [04-verify-notify](../04-verify-notify).
 
 ## Trigger payload for this demo
 
+**Every field below is already pre-filled as the workflow's default value
+except the secrets** (`gh_api_token`, `smtp_password`, and the other SMTP
+credentials) - deliberately left blank since they're not something to
+commit into a public GitHub repo. On each run you only need to paste
+those:
+
 ```json
 {
   "assignee": "kokunas",

@@ -38,6 +38,10 @@ Same GitHub credential/integration as [02-remediate-log4j](../02-remediate-log4j
 
 ## Trigger payload for this demo
 
+`assignee`, `email` and `input_json_data` are already pre-filled as
+defaults on the workflow - only `auth` (the stored GitHub connection) or
+a raw token needs to be supplied at trigger time.
+
 ```json
 {
   "assignee": "kokunas",

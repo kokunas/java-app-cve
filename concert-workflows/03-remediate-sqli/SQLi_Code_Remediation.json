@@ -238,7 +238,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokunas\""
         },
         {
             "name": "fileSHA",
@@ -271,7 +271,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"\""
+            "value": "\"kokuna+democoncert@gmail.com\""
         },
         {
             "name": "date",
@@ -293,7 +293,7 @@
             "type": {
                 "type": "object"
             },
-            "value": "{}"
+            "value": "{\"recommendations\": {\"meta_data\": {\"org_name\": \"kokunas\", \"repo_name\": \"java-app-cve\", \"base_branch\": \"main\"}, \"finding\": {\"file\": \"src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java\", \"cwe\": \"CWE-89\", \"rule_id\": \"java-sqli-string-concat-jdbctemplate\", \"severity\": \"HIGH\"}}}"
         },
         {
             "name": "updatedFileContent",

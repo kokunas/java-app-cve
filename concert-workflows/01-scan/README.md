@@ -29,25 +29,26 @@ Concert Workflows console -> Workflows -> Import -> select `Trivy_GitHub_Scan.zi
 
 ## How to run it for this demo
 
-Trigger the workflow manually (or on a schedule) with:
+Every field except `concert_api_key` is already pre-filled as the
+workflow's default (`gh_repo_url`, `concert_url`, `concert_instance_id`,
+`application_name`, `application_version` all point at this demo already -
+`concert_api_key` is left blank on purpose, it's a secret). On each run
+you only need to paste that one:
 
 ```json
 {
   "gh_repo_url": "https://github.com/kokunas/java-app-cve",
   "gh_api_token": "",
-  "concert_url": "<your Concert API Gateway URL>",
+  "concert_url": "https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com",
   "concert_api_key": "<your Concert API key>",
-  "concert_instance_id": "<your Concert instance ID>",
+  "concert_instance_id": "0000-0000-0000-0000",
   "concert_allow_insecure": false,
   "application_name": "bankdemo",
   "application_version": "1.0.0"
 }
 ```
 
-Leave `gh_api_token` empty - the repo is public. `concert_url`,
-`concert_api_key` and `concert_instance_id` come from your Concert tenant
-(Administration -> API keys) - see the top-level [README](../../README.md)
-for where to get them.
+Leave `gh_api_token` empty - the repo is public.
 
 ## Verified
 

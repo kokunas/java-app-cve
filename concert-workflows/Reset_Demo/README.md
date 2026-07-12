@@ -46,6 +46,11 @@ subflows, matching how IBM distributes its own single-flow samples like
 
 ## Trigger payload for this demo
 
+**Every field below is already pre-filled as the workflow's default value
+except `gh_api_token` and `concert_api_key`** (deliberately left blank -
+they're secrets, not something to commit into a public GitHub repo). On
+each run you only need to paste those two:
+
 ```json
 {
   "gh_repo_url": "https://github.com/kokunas/java-app-cve",

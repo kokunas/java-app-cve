@@ -31,6 +31,10 @@ and `pull_requests:write` on that single repo is enough).
 
 ## Recommendation payload for this demo
 
+`assignee`, `email` and `input_json_data` are already pre-filled as
+defaults on the workflow - only `auth` (the stored GitHub connection) or
+a raw token needs to be supplied at trigger time.
+
 This is the shape Concert's own vulnerability-prioritization engine
 generates when you click "Apply recommended fix" on the CVE-2021-44228 /
 CVE-2021-45046 finding for `bankdemo` - reproduced here so the workflow can
