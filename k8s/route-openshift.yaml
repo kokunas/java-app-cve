@@ -1,0 +1,22 @@
+# OpenShift-native alternative to k8s/service-public.yaml's Ingress
+# (this cluster's IngressController is openshift.io/ingress-to-route,
+# so a Route is more direct than fighting nginx-specific annotations
+# that don't apply here). Same PUBLIC exposure semantics.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: bankdemo-app
+  namespace: banco-kokunas
+  labels:
+    app.kubernetes.io/name: bankdemo
+    app.kubernetes.io/part-of: banco-kokunas
+    concert.ibm.com/exposure: public
+spec:
+  to:
+    kind: Service
+    name: bankdemo-app
+  port:
+    targetPort: 80
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

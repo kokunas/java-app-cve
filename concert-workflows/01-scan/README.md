@@ -1,9 +1,13 @@
 # 01 - Scan: Trivy GitHub Scan
 
-Source: unmodified copy of IBM's official sample workflow
+Source: adapted from IBM's official sample workflow
 [`trivy-github-scan`](https://github.com/IBM/Concert/blob/main/concert-workflows-samples/trivy-github-scan.zip)
-(Apache-2.0, `github.com/IBM/Concert`). It is fully generic and does not need
-any change to work with this demo - only the input parameters differ.
+(Apache-2.0, `github.com/IBM/Concert`). **One deliberate change from the
+original**: the upload step now also sends `application_name` /
+`application_version` in the ingestion metadata. Without this, Concert
+auto-creates the scanned app under a `placeholder_app_<base64(user)>` name
+instead of `bankdemo` - confirmed live against this repo/instance during
+development (see "Verified" below). Everything else is unmodified.
 
 ## What it does
 
@@ -33,7 +37,9 @@ Trigger the workflow manually (or on a schedule) with:
   "concert_url": "<your Concert API Gateway URL>",
   "concert_api_key": "<your Concert API key>",
   "concert_instance_id": "<your Concert instance ID>",
-  "concert_allow_insecure": false
+  "concert_allow_insecure": false,
+  "application_name": "bankdemo",
+  "application_version": "1.0.0"
 }
 ```
 
@@ -41,6 +47,14 @@ Leave `gh_api_token` empty - the repo is public. `concert_url`,
 `concert_api_key` and `concert_instance_id` come from your Concert tenant
 (Administration -> API keys) - see the top-level [README](../../README.md)
 for where to get them.
+
+## Verified
+
+Ran this exact modified logic (curl/trivy install steps swapped for
+already-installed local binaries, everything else identical) against the
+real repo and the real Concert instance: the scan completed, uploaded with
+`202 Accepted`, and the resulting Concert application was named `bankdemo`
+directly - no placeholder name, no manual rename needed afterward.
 
 ## Expected findings
 
