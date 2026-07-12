@@ -32,7 +32,8 @@ query=Maria`) keeps working, while the boolean-bypass payload (`' OR
 
 ## How to import
 
-Concert Workflows console -> Workflows -> Import -> `SQLi_Code_Remediation.json`.
+Concert Workflows console -> Workflows -> Import -> `SQLi_Code_Remediation.zip`
+(the picker greys out loose `.json` files - always import the `.zip`).
 Same GitHub credential/integration as [02-remediate-log4j](../02-remediate-log4j).
 
 ## Trigger payload for this demo

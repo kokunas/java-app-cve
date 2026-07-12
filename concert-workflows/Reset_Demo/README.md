@@ -38,9 +38,11 @@ oc rollout restart deployment/bankdemo-app -n banco-kokunas
 
 ## How to import
 
-Concert Workflows console -> Workflows -> Import -> `Reset_Demo.json`
-(single file, no subflows - unlike [Remediate_All](../Remediate_All) this
-one doesn't need to be zipped).
+Concert Workflows console -> Workflows -> Import -> `Reset_Demo.zip`
+(loose `.json` files show up greyed-out/unselectable in Concert's import
+picker - it only accepts `.zip`, even for a single-flow bundle with no
+subflows, matching how IBM distributes its own single-flow samples like
+`trivy-github-scan.zip`).
 
 ## Trigger payload for this demo
 

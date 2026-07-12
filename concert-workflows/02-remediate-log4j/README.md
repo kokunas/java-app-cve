@@ -23,7 +23,8 @@ Source: unmodified copy of IBM's official sample workflow
 
 ## How to import
 
-Concert Workflows console -> Workflows -> Import -> `Maven_Package_Upgrade.json`.
+Concert Workflows console -> Workflows -> Import -> `Maven_Package_Upgrade.zip`
+(the picker greys out loose `.json` files - always import the `.zip`).
 Needs a **GitHub** integration/credential configured in Concert with write
 access to `kokunas/java-app-cve` (a fine-grained PAT with `contents:write`
 and `pull_requests:write` on that single repo is enough).

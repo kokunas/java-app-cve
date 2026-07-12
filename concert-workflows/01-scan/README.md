@@ -24,7 +24,8 @@ default" looks like, just made explicit and re-runnable on demand.
 ## How to import
 
 Follow [Importing/exporting Concert workflows](https://www.ibm.com/docs/en/rapid-network-auto/1.1.x?topic=workflows-importing-exporting):
-Concert Workflows console -> Workflows -> Import -> select `Trivy_GitHub_Scan.json`.
+Concert Workflows console -> Workflows -> Import -> select `Trivy_GitHub_Scan.zip`
+(the picker greys out loose `.json` files - always import the `.zip`).
 
 ## How to run it for this demo
 

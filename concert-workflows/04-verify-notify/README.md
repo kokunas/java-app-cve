@@ -39,7 +39,8 @@ for a live demo.
 
 ## How to import
 
-Concert Workflows console -> Workflows -> Import -> `Verify_And_Notify.json`.
+Concert Workflows console -> Workflows -> Import -> `Verify_And_Notify.zip`
+(the picker greys out loose `.json` files - always import the `.zip`).
 
 ## Trigger payload for this demo
 

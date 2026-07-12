@@ -53,8 +53,24 @@ isolation instead of the nested `Remediate_All`.
 
 ## Importing
 
-Console -> Workflows -> Import -> select the `.json` file, or the `.zip`
-for [Remediate_All](Remediate_All) (has nested subflows that must import
-together). See
+**Always import the `.zip`, never the loose `.json`** - Concert's import
+picker greys out/disables raw `.json` files, even for a single-flow bundle
+with no subflows (confirmed live: `Reset_Demo.json` and
+`Trivy_GitHub_Scan.json` were both unselectable until zipped). This
+matches how IBM distributes its own samples - `trivy-github-scan.zip`
+wraps a single JSON file the same way. Every workflow here ships both
+forms: the loose `.json` for readability/diffing in this repo, and a
+`.zip` next to it (or containing it, for the folders) for import:
+
+| Workflow | Import this |
+|---|---|
+| Reset_Demo | [`Reset_Demo.zip`](Reset_Demo.zip) |
+| Trivy_GitHub_Scan | [`01-scan/Trivy_GitHub_Scan.zip`](01-scan/Trivy_GitHub_Scan.zip) |
+| Maven_Package_Upgrade | [`02-remediate-log4j/Maven_Package_Upgrade.zip`](02-remediate-log4j/Maven_Package_Upgrade.zip) |
+| SQLi_Code_Remediation | [`03-remediate-sqli/SQLi_Code_Remediation.zip`](03-remediate-sqli/SQLi_Code_Remediation.zip) |
+| Verify_And_Notify | [`04-verify-notify/Verify_And_Notify.zip`](04-verify-notify/Verify_And_Notify.zip) |
+| Remediate_All (+ 3 nested subflows) | [`Remediate_All.zip`](Remediate_All.zip) |
+
+Console -> Workflows -> Import -> select the `.zip`. See
 [Importing/exporting Concert workflows](https://www.ibm.com/docs/en/rapid-network-auto/1.1.x?topic=workflows-importing-exporting)
 for the general procedure (same one IBM's own sample README points to).
