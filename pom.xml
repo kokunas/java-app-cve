@@ -26,7 +26,7 @@
         <java.version>17</java.version>
         <!-- INTENTIONALLY VULNERABLE: CVE-2021-44228 / CVE-2021-45046 (Log4Shell).
              Do not bump manually - this is patched by the auto-remediation workflow. -->
-        <log4j.version>2.24.3</log4j.version>
+        <log4j.version>2.14.1</log4j.version>
     </properties>
 
     <dependencies>
