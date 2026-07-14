@@ -271,7 +271,7 @@
         },
         {
             "name": "smtp_host",
-            "required": true,
+            "required": false,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
@@ -293,7 +293,7 @@
         },
         {
             "name": "smtp_username",
-            "required": true,
+            "required": false,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
@@ -308,7 +308,7 @@
         },
         {
             "name": "smtp_password",
-            "required": true,
+            "required": false,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
@@ -323,7 +323,7 @@
         },
         {
             "name": "smtp_from",
-            "required": true,
+            "required": false,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
