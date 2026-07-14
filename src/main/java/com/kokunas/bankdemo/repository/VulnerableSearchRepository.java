@@ -28,9 +28,11 @@ public class VulnerableSearchRepository {
     }
 
     public List<Map<String, Object>> searchCustomers(String term) {
-        // VULNERABLE: user input concatenated directly into the SQL string.
+        // Fixed by Concert Workflow: CWE-89 SQL Injection remediated by
+        // switching from string concatenation to JDBC bind parameters.
         String sql = "SELECT id, full_name, nif, email, iban FROM customers " +
-                "WHERE full_name ILIKE '%" + term + "%' OR nif ILIKE '%" + term + "%'";
-        return jdbcTemplate.queryForList(sql);
+                "WHERE full_name ILIKE ? OR nif ILIKE ?";
+        String likeTerm = "%" + term + "%";
+        return jdbcTemplate.queryForList(sql, likeTerm, likeTerm);
     }
 }
