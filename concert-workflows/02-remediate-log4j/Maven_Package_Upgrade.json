@@ -338,7 +338,7 @@
             "type": {
                 "type": "any"
             },
-            "value": "\"\""
+            "value": "\"github_pat_java-app-cve\""
         },
         {
             "name": "url",
