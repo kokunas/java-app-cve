@@ -89,7 +89,7 @@
             "type": {
                 "type": "string"
             },
-            "value": "\"main\""
+            "value": "\"reset-target-branch\""
         },
         {
             "name": "reset_files",
