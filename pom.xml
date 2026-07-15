@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
+        <version>2.7.18</version>
         <relativePath/>
     </parent>
 
@@ -17,9 +17,9 @@
     <name>bankdemo</name>
     <description>
         IBM Concert remediation-lifecycle demo: a mortgage-loan and funds-transfer
-        banking application intentionally shipped with known (CVE-2021-44228, Log4Shell)
-        and unknown (SQL Injection) vulnerabilities for scan -&gt; prioritize -&gt;
-        remediate -&gt; verify -&gt; notify demonstrations.
+        banking application intentionally shipped with known (CVE-2021-44228, Log4Shell;
+        CVE-2022-22965, Spring4Shell) and unknown (SQL Injection) vulnerabilities for
+        scan -&gt; prioritize -&gt; remediate -&gt; verify -&gt; notify demonstrations.
     </description>
 
     <properties>
@@ -27,6 +27,12 @@
         <!-- INTENTIONALLY VULNERABLE: CVE-2021-44228 / CVE-2021-45046 (Log4Shell).
              Do not bump manually - this is patched by the auto-remediation workflow. -->
         <log4j.version>2.14.1</log4j.version>
+        <!-- INTENTIONALLY VULNERABLE: CVE-2022-22965 (Spring4Shell). Affects
+             Spring Framework < 5.3.18 / < 5.2.20. Pinned to the last vulnerable
+             5.3.x patch - hence the Spring Boot 2.7.x parent (Boot 3.x requires
+             Framework 6.x, which isn't affected by this CVE). Do not bump
+             manually - patched by the auto-remediation workflow. -->
+        <spring-framework.version>5.3.17</spring-framework.version>
     </properties>
 
     <dependencies>

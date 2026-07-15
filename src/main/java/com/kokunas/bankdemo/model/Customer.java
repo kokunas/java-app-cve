@@ -1,6 +1,6 @@
 package com.kokunas.bankdemo.model;
 
-import jakarta.persistence.*;
+import javax.persistence.*;
 
 @Entity
 @Table(name = "customers")

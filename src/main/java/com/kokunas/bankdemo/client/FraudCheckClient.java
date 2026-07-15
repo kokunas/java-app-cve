@@ -3,12 +3,14 @@ package com.kokunas.bankdemo.client;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 
@@ -24,16 +26,15 @@ public class FraudCheckClient {
 
     private static final Logger log = LoggerFactory.getLogger(FraudCheckClient.class);
 
-    private final RestClient restClient;
+    private final RestTemplate restTemplate;
+    private final String baseUrl;
 
     public FraudCheckClient(@Value("${fraud.service.url}") String baseUrl) {
+        this.baseUrl = baseUrl;
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(800);
         requestFactory.setReadTimeout(800);
-        this.restClient = RestClient.builder()
-                .baseUrl(baseUrl)
-                .requestFactory(requestFactory)
-                .build();
+        this.restTemplate = new RestTemplate(requestFactory);
     }
 
     public FraudCheckResult check(String customerNif, String transactionType, BigDecimal amount) {
@@ -43,12 +44,13 @@ public class FraudCheckClient {
             form.add("transactionType", transactionType);
             form.add("amount", amount.toPlainString());
 
-            FraudCheckResult result = restClient.post()
-                    .uri("/api/fraudCheck")
-                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
-                    .body(form)
-                    .retrieve()
-                    .body(FraudCheckResult.class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+            FraudCheckResult result = restTemplate.postForObject(
+                    baseUrl + "/api/fraudCheck",
+                    new HttpEntity<>(form, headers),
+                    FraudCheckResult.class);
 
             return result != null ? result : FraudCheckResult.unavailable();
         } catch (Exception e) {

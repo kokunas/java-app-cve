@@ -2,7 +2,7 @@ package com.kokunas.bankdemo.controller;
 
 import com.kokunas.bankdemo.config.AuditLogger;
 import com.kokunas.bankdemo.repository.VulnerableSearchRepository;
-import jakarta.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
