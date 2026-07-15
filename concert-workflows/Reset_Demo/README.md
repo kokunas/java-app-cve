@@ -2,16 +2,17 @@
 
 Run this **before every demo**. Makes two things true again:
 
-1. **The code is vulnerable again.** Reverts `pom.xml` and
-   `VulnerableSearchRepository.java` on `main` back to the
-   [`vulnerable-baseline`](https://github.com/kokunas/java-app-cve/releases/tag/vulnerable-baseline)
-   git tag, via direct commits through the GitHub Contents API (no PR -
-   this is demo housekeeping, not a reviewed change). The push
-   automatically re-triggers `.github/workflows/build-and-push.yml`,
-   republishing the vulnerable image to `ghcr.io/kokunas/java-app-cve`.
-   Idempotent: if a file already matches the baseline, it's left alone
-   (verified locally - reruns log `"already matches ... nothing to
-   reset"` instead of creating no-op commits).
+1. **The code is vulnerable again, in both repos.** Reverts `pom.xml`
+   (and `VulnerableSearchRepository.java` for java-app-cve) on `main`
+   back to each repo's own `vulnerable-baseline` git tag
+   ([java-app-cve](https://github.com/kokunas/java-app-cve/releases/tag/vulnerable-baseline),
+   [fraud-cve](https://github.com/kokunas/fraud-cve/releases/tag/vulnerable-baseline)),
+   via direct commits through the GitHub Contents API (no PR - this is
+   demo housekeeping, not a reviewed change). Each push automatically
+   re-triggers that repo's own `build-and-push.yml`, republishing the
+   vulnerable image to GHCR. Idempotent: if a file already matches the
+   baseline, it's left alone (verified locally - reruns log `"already
+   matches ... nothing to reset"` instead of creating no-op commits).
 2. **Concert is empty.** Deletes every `application`, `source_repo`,
    `build_artifact`, `environment`, and `certificate` from the Concert
    instance via its own core API, so the next scan starts from nothing -
@@ -30,10 +31,11 @@ for a repeat audience.
 
 Reset_Demo fixes the **source** and the **image** (new vulnerable image
 lands in GHCR within ~1-2 minutes), but the **already-running** OpenShift
-pods don't restart themselves. Before the next demo, roll them:
+pods don't restart themselves. Before the next demo, roll both:
 
 ```
 oc rollout restart deployment/bankdemo-app -n banco-kokunas
+oc rollout restart deployment/fraud-cve-app -n banco-kokunas
 ```
 
 ## How to import
@@ -46,18 +48,14 @@ subflows, matching how IBM distributes its own single-flow samples like
 
 ## Trigger payload for this demo
 
-**Every field below is already pre-filled as the workflow's default value
-except `gh_api_token` and `concert_api_key`** (deliberately left blank -
-they're secrets, not something to commit into a public GitHub repo). On
-each run you only need to paste those two:
+`repos` is pre-filled with both repos' defaults except the two
+`gh_api_token` fields (deliberately left blank - they're secrets). Paste
+in the two tokens (`github_pat_java-app-cve`'s token and
+`github_pat_fraud-cve`'s token) plus `concert_api_key` on each run:
 
 ```json
 {
-  "gh_repo_url": "https://github.com/kokunas/java-app-cve",
-  "gh_api_token": "<GitHub token - contents:write>",
-  "baseline_ref": "vulnerable-baseline",
-  "target_branch": "main",
-  "reset_files": "[\"pom.xml\", \"src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java\"]",
+  "repos": "[{\"gh_repo_url\": \"https://github.com/kokunas/java-app-cve\", \"gh_api_token\": \"<token 1>\", \"baseline_ref\": \"vulnerable-baseline\", \"target_branch\": \"main\", \"reset_files\": [\"pom.xml\", \"src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java\"]}, {\"gh_repo_url\": \"https://github.com/kokunas/fraud-cve\", \"gh_api_token\": \"<token 2>\", \"baseline_ref\": \"vulnerable-baseline\", \"target_branch\": \"main\", \"reset_files\": [\"pom.xml\"]}]",
   "concert_url": "https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com",
   "concert_api_key": "<Concert API key>",
   "concert_instance_id": "0000-0000-0000-0000"
