@@ -1,5 +1,7 @@
 package com.kokunas.bankdemo.service;
 
+import com.kokunas.bankdemo.client.FraudCheckClient;
+import com.kokunas.bankdemo.client.FraudCheckResult;
 import com.kokunas.bankdemo.config.AuditLogger;
 import com.kokunas.bankdemo.model.Customer;
 import com.kokunas.bankdemo.model.MortgageLoan;
@@ -18,10 +20,13 @@ public class LoanService {
 
     private final MortgageLoanRepository loanRepository;
     private final AuditLogger auditLogger;
+    private final FraudCheckClient fraudCheckClient;
 
-    public LoanService(MortgageLoanRepository loanRepository, AuditLogger auditLogger) {
+    public LoanService(MortgageLoanRepository loanRepository, AuditLogger auditLogger,
+                        FraudCheckClient fraudCheckClient) {
         this.loanRepository = loanRepository;
         this.auditLogger = auditLogger;
+        this.fraudCheckClient = fraudCheckClient;
     }
 
     /** French amortization system: fixed monthly payment. */
@@ -59,7 +64,15 @@ public class LoanService {
         loan.setInterestRate(interestRate);
         loan.setTermYears(termYears);
         loan.setMonthlyPayment(calculateMonthlyPayment(requestedAmount, interestRate, termYears));
-        loan.setStatus(evaluateEligibility(propertyValue, requestedAmount));
+
+        MortgageLoan.Status status = evaluateEligibility(propertyValue, requestedAmount);
+        if (status == MortgageLoan.Status.APPROVED) {
+            FraudCheckResult fraudCheck = fraudCheckClient.check(customer.getNif(), "MORTGAGE", requestedAmount);
+            if (!fraudCheck.approved()) {
+                status = MortgageLoan.Status.REJECTED;
+            }
+        }
+        loan.setStatus(status);
 
         MortgageLoan saved = loanRepository.save(loan);
         auditLogger.logMortgageApplication(customer.getNif(), saved.getStatus().name());

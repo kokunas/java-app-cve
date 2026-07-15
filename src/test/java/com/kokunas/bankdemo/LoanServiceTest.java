@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class LoanServiceTest {
 
-    private final LoanService loanService = new LoanService(null, null);
+    private final LoanService loanService = new LoanService(null, null, null);
 
     @Test
     void calculatesMonthlyPaymentForStandardMortgage() {

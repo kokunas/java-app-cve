@@ -1,6 +1,10 @@
 server:
   port: 8080
 
+fraud:
+  service:
+    url: ${FRAUD_SERVICE_URL:http://fraud-cve.banco-kokunas.svc.cluster.local}
+
 spring:
   application:
     name: bankdemo
