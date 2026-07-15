@@ -133,6 +133,26 @@
                 {
                     "name": "smtp_from",
                     "value": "$smtp_from"
+                },
+                {
+                    "name": "concert_url",
+                    "value": "$concert_url"
+                },
+                {
+                    "name": "concert_api_key",
+                    "value": "$concert_api_key"
+                },
+                {
+                    "name": "concert_instance_id",
+                    "value": "$concert_instance_id"
+                },
+                {
+                    "name": "application_name",
+                    "value": "$application_name"
+                },
+                {
+                    "name": "application_version",
+                    "value": "$application_version"
                 }
             ]
         },
@@ -331,6 +351,65 @@
                 "type": "string"
             },
             "value": "\"\""
+        },
+        {
+            "name": "concert_url",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com\""
+        },
+        {
+            "name": "concert_api_key",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\"",
+            "meta": {
+                "notLogged": true,
+                "subType": "password"
+            }
+        },
+        {
+            "name": "concert_instance_id",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"0000-0000-0000-0000\""
+        },
+        {
+            "name": "application_name",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"bankdemo\""
+        },
+        {
+            "name": "application_version",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"1.0.0\""
         }
     ],
     "meta": {
