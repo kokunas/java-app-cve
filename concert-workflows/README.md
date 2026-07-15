@@ -28,6 +28,7 @@ between), and **one** workflow before you start:
 |---|----------|-------|-----------------|
 | - | [`Reset_Demo`](Reset_Demo) | **Reset (run first)** | Reverts the code to the vulnerable baseline and wipes every application/repo/artifact/certificate out of Concert, so the instance is empty and the CVEs are real again |
 | [01](01-scan) | `Trivy_GitHub_Scan` | **Scan** | Trivy SCA scan of `kokunas/java-app-cve`, CycloneDX report ingested into Concert - trigger this live, in front of the audience, to show Concert connecting to GitHub and detecting the CVEs from nothing |
+| [01b](01b-scan-image) | `Trivy_Image_Scan` | **Scan (image)** | Trivy scan of the built `ghcr.io/kokunas/java-app-cve` container image (OS packages + bundled libraries) - `bankdemo`'s CVE count goes from 7 to 88 once both scans have run |
 | - | *(Concert UI)* | **Prioritize** | Open the finding in Concert's Vulnerability dimension / **Arena view**, see it scored against the `bankdemo` app topology (public endpoint, business criticality) - explain why CVE-2021-44228 outranks its siblings |
 | [Remediate_All](Remediate_All) | `Remediate_All` | **Remediate + merge + verify + notify** | Nested: opens the log4j PR, opens the SQLi PR, **auto-merges both** via the GitHub REST API, then runs the isofunctional test suite + a fresh Trivy scan against `main` and emails the result - all from one trigger |
 
@@ -66,6 +67,7 @@ forms: the loose `.json` for readability/diffing in this repo, and a
 |---|---|
 | Reset_Demo | [`Reset_Demo.zip`](Reset_Demo.zip) |
 | Trivy_GitHub_Scan | [`01-scan/Trivy_GitHub_Scan.zip`](01-scan/Trivy_GitHub_Scan.zip) |
+| Trivy_Image_Scan | [`01b-scan-image/Trivy_Image_Scan.zip`](01b-scan-image/Trivy_Image_Scan.zip) |
 | Maven_Package_Upgrade | [`02-remediate-log4j/Maven_Package_Upgrade.zip`](02-remediate-log4j/Maven_Package_Upgrade.zip) |
 | SQLi_Code_Remediation | [`03-remediate-sqli/SQLi_Code_Remediation.zip`](03-remediate-sqli/SQLi_Code_Remediation.zip) |
 | Verify_And_Notify | [`04-verify-notify/Verify_And_Notify.zip`](04-verify-notify/Verify_And_Notify.zip) |
