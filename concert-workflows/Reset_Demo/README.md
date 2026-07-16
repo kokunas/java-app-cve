@@ -13,11 +13,16 @@ Run this **before every demo**. Makes two things true again:
    vulnerable image to GHCR. Idempotent: if a file already matches the
    baseline, it's left alone (verified locally - reruns log `"already
    matches ... nothing to reset"` instead of creating no-op commits).
-2. **Concert is empty.** Deletes every `application`, `source_repo`,
-   `build_artifact`, `environment`, and `certificate` from the Concert
-   instance via its own core API, so the next scan starts from nothing -
-   matching the requirement that Concert has no demo data loaded before
-   you start.
+2. **Only this demo's applications are gone from Concert - nothing
+   else.** Deletes just the applications named in `application_names`
+   (default: `bankdemo`, `fraud-cve`, `legacy-win-fileserver`,
+   `legacy-core-gateway`, `legacy-web-portal`) via Concert's core API, so
+   the next scan starts from nothing for this demo. Deliberately **not**
+   a blanket wipe of the whole instance - this is safe to run against a
+   Concert shared with other teams/demos, since anything not in that
+   name list is left completely untouched. Deleting an application
+   cascades to its own `source_repos` (confirmed live), so there's no
+   separate step needed for those.
 
 ## Why not just re-baseline in git and leave Concert alone?
 
@@ -56,6 +61,7 @@ in the two tokens (`github_pat_java-app-cve`'s token and
 ```json
 {
   "repos": "[{\"gh_repo_url\": \"https://github.com/kokunas/java-app-cve\", \"gh_api_token\": \"<token 1>\", \"baseline_ref\": \"vulnerable-baseline\", \"target_branch\": \"main\", \"reset_files\": [\"pom.xml\", \"src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java\"]}, {\"gh_repo_url\": \"https://github.com/kokunas/fraud-cve\", \"gh_api_token\": \"<token 2>\", \"baseline_ref\": \"vulnerable-baseline\", \"target_branch\": \"main\", \"reset_files\": [\"pom.xml\"]}]",
+  "application_names": "[\"bankdemo\", \"fraud-cve\", \"legacy-win-fileserver\", \"legacy-core-gateway\", \"legacy-web-portal\"]",
   "concert_url": "https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com",
   "concert_api_key": "<Concert API key>",
   "concert_instance_id": "0000-0000-0000-0000"
@@ -64,8 +70,8 @@ in the two tokens (`github_pat_java-app-cve`'s token and
 
 ## Verified locally
 
-Ran this exact logic twice against the real repo and the real Concert
-instance during development:
+Ran this exact logic multiple times against the real repos and the real
+Concert instance during development:
 - **Idempotent run**: both files already matched baseline -> logged
   `already_reset`, no commits created; Concert had 1 application + 1
   source_repo -> both deleted successfully.
@@ -74,3 +80,8 @@ instance during development:
   detected the drift and reverted `pom.xml` via a real authenticated PUT
   to the GitHub Contents API (commit `1cc3ca2`), while leaving the
   already-correct SQLi file untouched.
+- **Shared-instance scoping**: confirmed live that deleting an
+  application named in `application_names` never touches applications
+  with other names (verified with a mix of matching and non-matching
+  application names present in the same instance) - only the ones this
+  demo owns get removed.
