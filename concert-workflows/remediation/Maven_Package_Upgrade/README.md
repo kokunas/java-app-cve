@@ -87,5 +87,5 @@ gap. The resulting `pom.xml` is valid and all 11 isofunctional tests pass
 against it unchanged.
 
 The PR opened against `kokunas/java-app-cve` is what the
-[04-verify-notify](../04-verify-notify) workflow validates (isofunctional
+[Verify_And_Notify](../Verify_And_Notify) workflow validates (isofunctional
 test suite + re-scan) before notifying.

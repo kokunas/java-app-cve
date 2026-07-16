@@ -5,9 +5,9 @@ workflows into a single trigger, so the presenter doesn't click through
 them one by one:
 
 1. `./Remediate_All_Helper/Maven_Package_Upgrade` (copy of
-   [02-remediate-log4j](../02-remediate-log4j)) - opens PR #1 (log4j fix).
+   [Maven_Package_Upgrade](../Maven_Package_Upgrade)) - opens PR #1 (log4j fix).
 2. `./Remediate_All_Helper/SQLi_Code_Remediation` (copy of
-   [03-remediate-sqli](../03-remediate-sqli)) - opens PR #2 (SQLi fix).
+   [SQLi_Code_Remediation](../SQLi_Code_Remediation)) - opens PR #2 (SQLi fix).
 3. `merge_prs` (`system/FaaS/Python`) - merges both PRs via the **GitHub
    REST API directly** (`PUT /repos/{owner}/{repo}/pulls/{n}/merge`).
    There is no native "merge PR" block in Concert's published catalog
@@ -16,7 +16,7 @@ them one by one:
    this demo. Retries with backoff, since GitHub can return 405 for a few
    seconds right after PR creation while mergeability is computed.
 4. `./Remediate_All_Helper/Verify_And_Notify` (copy of
-   [04-verify-notify](../04-verify-notify)) - now runs against `main`,
+   [Verify_And_Notify](../Verify_And_Notify)) - now runs against `main`,
    which contains **both** merged fixes: isofunctional tests + a fresh
    Trivy scan, then the result email.
 
@@ -35,7 +35,7 @@ review only).
 Concert Workflows console -> Workflows -> Import -> `../Remediate_All.zip`.
 Needs the same GitHub credential as the individual remediation workflows,
 now also requiring **pull-requests: write** (to merge, not just open), plus
-the SMTP credentials from [04-verify-notify](../04-verify-notify).
+the SMTP credentials from [Verify_And_Notify](../Verify_And_Notify).
 
 ## Trigger payload for this demo
 
@@ -83,21 +83,21 @@ those:
 ## Verified locally before packaging
 
 - Each subflow's own block logic was already independently verified
-  against this repo (see [02](../02-remediate-log4j) and
-  [03](../03-remediate-sqli)) - `mvn test` green on both fixes.
+  against this repo (see [Maven_Package_Upgrade](../Maven_Package_Upgrade) and
+  [SQLi_Code_Remediation](../SQLi_Code_Remediation)) - `mvn test` green on both fixes.
 - `merge_prs`'s embedded Python passes `py_compile` syntax validation.
 - The GitHub "merge a pull request" REST call
   (`PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge`) is a standard,
   stable GitHub API - not re-tested live here to avoid opening/merging a
   throwaway PR against the demo repo, but the same curl-based call pattern
-  is exercised end-to-end by [Reset_Demo](../Reset_Demo), which performed
+  is exercised end-to-end by [Reset_Demo](../../reset-demo/Reset_Demo), which performed
   real authenticated GitHub Contents API writes successfully during
   development.
 
 ## Demo narrative
 
 With this workflow, the full lifecycle is just **two** Concert Workflow
-triggers: [`Trivy_GitHub_Scan`](../01-scan) (scan), then `Remediate_All`
+triggers: [`Trivy_GitHub_Scan`](../../discovery/Trivy_GitHub_Scan) (scan), then `Remediate_All`
 (remediate both findings, merge, verify, notify - nested end to end,
 including the isofunctional tests). Prioritization happens automatically
 in the Concert console between the two.

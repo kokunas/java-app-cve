@@ -13,8 +13,8 @@ One `system/FaaS/Python` block (`verify_and_notify`):
 1. Installs `git`, `maven`, `openjdk17`, `curl` (Alpine FaaS sandbox, same
    as the official Trivy sample).
 2. Clones the branch to verify (typically `main`, after the log4j and SQLi
-   remediation PRs from [02](../02-remediate-log4j) and
-   [03](../03-remediate-sqli) are merged).
+   remediation PRs from [Maven_Package_Upgrade](../Maven_Package_Upgrade) and
+   [SQLi_Code_Remediation](../SQLi_Code_Remediation) are merged).
 3. Runs `mvn -q -B test` - the **isofunctional test suite**
    (`LoanServiceTest` + `IsofunctionalWebTests`, 11 tests). This is the
    check that the mortgage simulator, transfers and customer search still
@@ -30,8 +30,8 @@ One `system/FaaS/Python` block (`verify_and_notify`):
 validation, and every individual step (`mvn test` against both the
 vulnerable and the remediated `pom.xml`/`VulnerableSearchRepository.java`,
 and a local Trivy scan) was run and confirmed working against this repo
-during development (see [02](../02-remediate-log4j) and
-[03](../03-remediate-sqli) for the exact `mvn test` output). What's *not*
+during development (see [Maven_Package_Upgrade](../Maven_Package_Upgrade) and
+[SQLi_Code_Remediation](../SQLi_Code_Remediation) for the exact `mvn test` output). What's *not*
 independently verified here is the live `smtplib`/SMTP send or the Alpine
 `apk` toolchain install, since those only run inside Concert's actual FaaS
 sandbox - test this workflow with a real SMTP relay before relying on it

@@ -11,7 +11,7 @@ path requested for the demo, built to fit next to the log4j one.
 
 ## What it does
 
-Same shape as [02-remediate-log4j](../02-remediate-log4j), targeting
+Same shape as [Maven_Package_Upgrade](../Maven_Package_Upgrade), targeting
 `src/main/java/com/kokunas/bankdemo/repository/VulnerableSearchRepository.java`
 instead of `pom.xml`:
 
@@ -34,7 +34,7 @@ query=Maria`) keeps working, while the boolean-bypass payload (`' OR
 
 Concert Workflows console -> Workflows -> Import -> `SQLi_Code_Remediation.zip`
 (the picker greys out loose `.json` files - always import the `.zip`).
-Same GitHub credential/integration as [02-remediate-log4j](../02-remediate-log4j).
+Same GitHub credential/integration as [Maven_Package_Upgrade](../Maven_Package_Upgrade).
 
 ## Trigger payload for this demo
 
@@ -66,7 +66,7 @@ a raw token needs to be supplied at trigger time.
 
 ## Why this matters for the demo narrative
 
-Trivy/Concert's default SCA scan (see [01-scan](../01-scan)) will find
+Trivy/Concert's default SCA scan (see [Trivy_GitHub_Scan](../../discovery/Trivy_GitHub_Scan)) will find
 CVE-2021-44228 because it's a dependency version. It will **not** find this
 SQL Injection, because it's not a dependency - it's how the application's
 own code talks to the database. Pairing these two remediation workflows is

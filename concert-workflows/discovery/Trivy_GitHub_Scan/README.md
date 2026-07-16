@@ -68,7 +68,7 @@ Scanning `pom.xml` should surface, among others:
 | CVE-2021-45046 | org.apache.logging.log4j:log4j-core | 2.14.1 | 2.16.0+ | CRITICAL |
 
 The SQL Injection in `VulnerableSearchRepository` (see
-[03-remediate-sqli](../03-remediate-sqli)) is **not** a dependency CVE, so
+[SQLi_Code_Remediation](../../remediation/SQLi_Code_Remediation)) is **not** a dependency CVE, so
 Trivy's SCA scan will not flag it - it represents the "unknown" / non-CVE
 class of finding that Concert's code-risk analysis (or a SAST tool) needs to
 surface separately, deliberately included in this demo to show both

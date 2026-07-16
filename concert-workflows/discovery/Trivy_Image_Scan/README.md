@@ -5,7 +5,7 @@ official `trivy-github-scan` sample) that scans the **built container
 image** (`ghcr.io/kokunas/java-app-cve`) instead of the source repo -
 picking up OS-level packages from the base image (`eclipse-temurin:17-jre-jammy`,
 Ubuntu 22.04) plus the bundled Java libraries, on top of what
-[01-scan](../01-scan) already finds from `pom.xml`.
+[Trivy_GitHub_Scan](../Trivy_GitHub_Scan) already finds from `pom.xml`.
 
 ## Why this exists
 
@@ -20,7 +20,7 @@ This is a second, independent bug from the CycloneDX version issue below,
 in the same general area (application-resource ingestion).
 
 Given that, this workflow reuses the same `/ingestion/api/v1/upload_files`
-`code_scan` path already proven reliable for [01-scan](../01-scan), just
+`code_scan` path already proven reliable for [Trivy_GitHub_Scan](../Trivy_GitHub_Scan), just
 pointed at the image instead of the repo. Concert creates a second
 `source_repo`-shaped entry named after the image
 (`ghcr.io/kokunas/java-app-cve:latest`) associated with the same
@@ -30,10 +30,10 @@ data model - but it gets the image's real vulnerability data attached to
 the application, which is what matters for the demo. Revisit this once
 IBM fixes the `build_artifacts` endpoint.
 
-## Same CycloneDX fix as 01-scan
+## Same CycloneDX fix as Trivy_GitHub_Scan
 
 Also applies the `specVersion` 1.6 -> 1.5 rewrite documented in
-[01-scan's README](../01-scan/README.md) - confirmed necessary here too
+[Trivy_GitHub_Scan's README](../Trivy_GitHub_Scan/README.md) - confirmed necessary here too
 (same `errUnsupportedCycloneDXVersion` failure otherwise).
 
 ## How to import
@@ -63,7 +63,7 @@ local binaries) against the real `ghcr.io/kokunas/java-app-cve:latest`
 image and the real Concert instance:
 - Trivy found **215 components / 88 vulnerabilities** in the image (OS
   packages from Ubuntu 22.04 + bundled JARs) - versus 7 CVEs / 82 packages
-  from the source-repo-only scan in [01-scan](../01-scan).
+  from the source-repo-only scan in [Trivy_GitHub_Scan](../Trivy_GitHub_Scan).
 - Upload accepted (`202`), and `bankdemo`'s total CVE count went from 7 to
   88 after ingestion, confirming the image's findings attached correctly.
 - Image digest was fetched directly from GHCR's registry API for

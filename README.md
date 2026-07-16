@@ -42,8 +42,8 @@ and
 simulation math, eligibility rules, transfer creation, customer search -
 independent of implementation. They pass unchanged both **before and
 after** the log4j and SQLi fixes (verified locally during development, see
-[concert-workflows/02](concert-workflows/02-remediate-log4j) and
-[03](concert-workflows/03-remediate-sqli)), which is what "isofunctional"
+[Maven_Package_Upgrade](concert-workflows/remediation/Maven_Package_Upgrade) and
+[SQLi_Code_Remediation](concert-workflows/remediation/SQLi_Code_Remediation)), which is what "isofunctional"
 means here: the remediation changes *how* the code does its job, not
 *what* it does.
 
@@ -97,12 +97,12 @@ real repo and the real Concert API) before writing each one. **Live demo
 shape: one reset, then two triggers:**
 
 0. **Reset (run before every demo)**:
-   [`Reset_Demo`](concert-workflows/Reset_Demo) - reverts the code to the
+   [`Reset_Demo`](concert-workflows/reset-demo/Reset_Demo) - reverts the code to the
    [`vulnerable-baseline`](https://github.com/kokunas/java-app-cve/releases/tag/vulnerable-baseline)
    tag and deletes every application/source_repo/build_artifact/
    environment/certificate from the Concert instance, so it's genuinely
    empty before you start.
-1. **Scan**: [`Trivy_GitHub_Scan`](concert-workflows/01-scan) - trigger
+1. **Scan**: [`Trivy_GitHub_Scan`](concert-workflows/discovery/Trivy_GitHub_Scan) - trigger
    this live, in front of the audience: Concert connects to GitHub, scans
    with Trivy, and the `bankdemo` application appears with real CVEs.
 2. **Prioritize**: done in the Concert console (Vulnerability dimension /
@@ -110,17 +110,17 @@ shape: one reset, then two triggers:**
    against `bankdemo`'s topology and business criticality (explain why
    CVE-2021-44228 outranks its siblings despite similar CVSS).
 3. **Remediate + merge + verify + notify, nested**:
-   [`Remediate_All`](concert-workflows/Remediate_All) - one trigger opens
+   [`Remediate_All`](concert-workflows/remediation/Remediate_All) - one trigger opens
    the log4j PR and the SQLi PR, **auto-merges both** via the GitHub REST
    API (no native "merge PR" block exists in Concert's catalog, confirmed
    against IBM's published samples - this calls GitHub directly), then
    runs the isofunctional test suite and a fresh Trivy scan against `main`
    and emails the outcome.
 
-The four individual stage workflows ([01](concert-workflows/01-scan),
-[02](concert-workflows/02-remediate-log4j),
-[03](concert-workflows/03-remediate-sqli),
-[04](concert-workflows/04-verify-notify)) still exist standalone if you'd
+The four individual stage workflows ([Trivy_GitHub_Scan](concert-workflows/discovery/Trivy_GitHub_Scan),
+[Maven_Package_Upgrade](concert-workflows/remediation/Maven_Package_Upgrade),
+[SQLi_Code_Remediation](concert-workflows/remediation/SQLi_Code_Remediation),
+[Verify_And_Notify](concert-workflows/remediation/Verify_And_Notify)) still exist standalone if you'd
 rather demo any single stage in isolation.
 
 ## What's still needed from you to run this live
