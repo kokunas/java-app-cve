@@ -1,0 +1,212 @@
+{
+    "name": "Trivy_SSH_Host_Scan",
+    "platform": "node",
+    "blocks": [
+        {
+            "action": "system/FaaS/Python",
+            "name": "trivy_ssh_host_scan",
+            "inputs": [
+                {
+                    "name": "code",
+                    "value": "`\"\"\"\nScript to scan the OS-level vulnerabilities of a remote Linux host over SSH\nusing Trivy (rootfs scan), then ingest the result into Concert as a\ncode_scan against an application - same ingestion path already proven by\nTrivy_GitHub_Scan / Trivy_Image_Scan, just pointed at a live host reached\nover SSH instead of a git repo or a container image.\n\nThis uses subprocess.run() to execute several commands, never use\n\"shell=True\" on user-provided input!!\n\nInput parameters (variables injected by workflow):\n- ssh_host:               [required, string]  Hostname/IP of the Linux host to scan\n- ssh_port:               [optional, number]  SSH port (default 22)\n- ssh_user:               [required, string]  SSH username\n- ssh_private_key:        [required, string]  PEM-encoded SSH private key (never logged)\n- ssh_use_sudo:           [optional, boolean] Prefix remote commands with sudo (default true - needed\n                                              to scan / and to install trivy to /usr/local/bin)\n- concert_url:            [required, string]  URL of the concert API Gateway\n- concert_api_key:        [required, string]  API Key to be used to authenticate to Concert\n- concert_instance_id:    [required, string]  Instance ID to which the report will be uploaded\n- concert_allow_insecure: [optional, boolean] Indicates if TLS should be enforced when pushing to concert\n- application_name:       [optional, string]  Name to register/attach the scanned host as in Concert\n- application_version:    [optional, string]  Version to associate with application_name\n- criticality:            [optional, number]  Business criticality to set on the application (0-5)\n- data_impact_risk:       [optional, number]  Data impact risk to set on the application (0-5)\n\"\"\"\n\nfrom json import dumps as json_dumps, loads as json_loads\nfrom os import chmod\nfrom subprocess import run, DEVNULL, PIPE\nfrom sys import exit as sys_exit\nfrom time import sleep\nfrom urllib.parse import urljoin\n\ndef obfuscate(input_str):\n    \"\"\"Convert input on obfuscated strings, useful to avoid leaking credentials\"\"\"\n    if not input_str or len(input_str) <= 8:\n        return \"*\" * len(input_str or \"\")\n    return input_str[0:4] + (\"*\" * (len(input_str) - 4))\n\ndef decode_utf8(input_bytes):\n    \"\"\"Utility function to convert the output of command executions to printable strings\"\"\"\n    if input_bytes:\n        return input_bytes.decode(\"utf-8\").strip()\n    return \"\"\n\nprint(\"Input parameters\")\nprint(\"=\" * 100)\nprint(\"ssh_host               :\", ssh_host)\nprint(\"ssh_port                :\", ssh_port)\nprint(\"ssh_user                :\", ssh_user)\nprint(\"ssh_private_key         :\", obfuscate(ssh_private_key))\nprint(\"ssh_use_sudo            :\", ssh_use_sudo)\nprint(\"concert_url             :\", concert_url)\nprint(\"concert_api_key         :\", obfuscate(concert_api_key))\nprint(\"concert_instance_id     :\", concert_instance_id)\nprint(\"concert_allow_insecure  :\", concert_allow_insecure)\nprint(\"application_name        :\", application_name)\nprint(\"application_version     :\", application_version)\nprint(\"=\" * 100)\n\n# Install curl and an ssh client (Python FaaS image is alpine-based)\napk_command = [\"apk\", \"add\", \"curl\", \"openssh-client\"]\ntry:\n    run(apk_command, check=True, stdout=DEVNULL, stderr=DEVNULL)\n    print(\"curl/openssh-client succesfully installed\")\nexcept Exception as e:\n    print(\"ERROR - Could not install curl/openssh-client:\", e)\n    sys_exit(1)\n\n# Write the private key to a file inside the sandbox - never interpolate\n# key material into a shell string/argument\nkey_path = \"/tmp/ssh_key\"\nkey_contents = ssh_private_key if ssh_private_key.endswith(\"\\n\") else ssh_private_key + \"\\n\"\nwith open(key_path, \"w\", encoding=\"utf-8\") as f:\n    f.write(key_contents)\nchmod(key_path, 0o600)\n\nssh_base_command = [\n    \"ssh\",\n    \"-i\", key_path,\n    \"-p\", str(int(ssh_port) if ssh_port else 22),\n    \"-o\", \"StrictHostKeyChecking=accept-new\",\n    \"-o\", \"ConnectTimeout=15\",\n    \"-o\", \"BatchMode=yes\",\n    f\"{ssh_user}@{ssh_host}\",\n]\n\nsudo_prefix = \"sudo \" if ssh_use_sudo else \"\"\n\n# Install trivy on the remote host if not already present (idempotent -\n# left installed afterwards, same as this workflow leaving nothing behind\n# in its own sandbox is not a goal here since the sandbox is ephemeral but\n# the remote host is not)\ntrivy_installer_url = \"https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh\"\ntrivy_version = \"v0.72.0\"\nremote_install_command = (\n    f\"command -v trivy >/dev/null 2>&1 || \"\n    f\"(curl -sfL {trivy_installer_url} | {sudo_prefix}sh -s -- -b /usr/local/bin {trivy_version})\"\n)\ninstall_result = run(ssh_base_command + [remote_install_command], check=False, stdout=PIPE, stderr=PIPE)\nif install_result.returncode != 0:\n    print(\"ERROR - Could not install trivy on remote host\")\n    print(\"stdout:\", decode_utf8(install_result.stdout))\n    print(\"stderr:\", decode_utf8(install_result.stderr))\n    sys_exit(1)\nprint(\"Trivy present/installed on remote host\")\n\n# Run the rootfs scan on the remote host: write to a remote temp file,\n# then cat it back over the same SSH round-trip (keeps the JSON payload\n# clean of any install/log noise, which trivy sends to stderr anyway),\n# then remove the remote temp file\nremote_scan_file = \"/tmp/trivy-ssh-scan.json\"\nremote_scan_command = (\n    f\"{sudo_prefix}trivy rootfs --scanners vuln --format cyclonedx --quiet \"\n    f\"--output {remote_scan_file} / && cat {remote_scan_file} && {sudo_prefix}rm -f {remote_scan_file}\"\n)\nattempt = 1\nmax_attempts = 5\nwhile True:\n    scan_result = run(ssh_base_command + [remote_scan_command], check=False, stdout=PIPE, stderr=PIPE)\n    if scan_result.returncode == 0 and scan_result.stdout:\n        print(\"Trivy remote rootfs scan completed\")\n        break\n    if attempt <= max_attempts:\n        print(f\"Scan attempt [{attempt}/{max_attempts}] failed, retrying (can be transient - vuln DB download or SSH hiccup)\")\n        attempt += 1\n        sleep(3)\n    else:\n        print(f\"ERROR - Could not perform trivy scan over SSH after {max_attempts} attempts, last execution output below\")\n        print(\"stdout:\", decode_utf8(scan_result.stdout))\n        print(\"stderr:\", decode_utf8(scan_result.stderr))\n        sys_exit(1)\n\nscan_output_file = \"ssh-host-scan.json\"\nwith open(scan_output_file, \"wb\") as f:\n    f.write(scan_result.stdout)\n\n# Concert 3.0.0's ingestion rejects the CycloneDX 1.6 spec that current\n# Trivy releases produce (see Trivy_GitHub_Scan/Trivy_Image_Scan for the\n# original discovery of this - errUnsupportedCycloneDXVersion). Downgrading\n# just the specVersion field is a safe, reversible workaround.\nwith open(scan_output_file, \"r\", encoding=\"utf-8\") as f:\n    cdx_report = json_loads(f.read())\noriginal_spec_version = cdx_report.get(\"specVersion\")\ncdx_report[\"specVersion\"] = \"1.5\"\nwith open(scan_output_file, \"w\", encoding=\"utf-8\") as f:\n    f.write(json_dumps(cdx_report))\nprint(f\"Rewrote CycloneDX specVersion {original_spec_version} -> 1.5 for Concert compatibility\")\n\n# Push scan result to concert, same code_scan ingestion path as\n# Trivy_GitHub_Scan / Trivy_Image_Scan\nupload_files_url = urljoin(concert_url, \"/ingestion/api/v1/upload_files\")\nheaders = [\n    \"Content-Type: multipart/form-data\",\n    f\"Authorization: C_API_KEY {concert_api_key}\",\n    f\"InstanceId: {concert_instance_id}\"\n]\nmetadata_dict = {\"repo_url\": f\"ssh://{ssh_user}@{ssh_host}:{ssh_port}\", \"scanner_name\": \"trivy\"}\nif application_name:\n    metadata_dict[\"application_name\"] = application_name\nif application_version:\n    metadata_dict[\"application_version\"] = application_version\nmetadata_json = json_dumps(metadata_dict)\nforms = [\n    \"data_type=code_scan\",\n    f\"filename=@{scan_output_file}\",\n    f\"metadata={metadata_json}\"\n]\n\nupload_command = [\"curl\", \"--fail\", \"--silent\", \"--show-error\", \"--request\", \"POST\"]\nupload_command.extend([\"--url\", upload_files_url])\nfor header in headers:\n    upload_command.extend([\"--header\", header])\nfor form in forms:\n    upload_command.extend([\"--form\", form])\nif concert_allow_insecure:\n    upload_command.append(\"--insecure\")\n\nupload_result = run(upload_command, check=False, stdout=PIPE, stderr=PIPE)\nif upload_result.returncode == 0:\n    print(\"Scan succesfully submitted to concert!\")\n    output = decode_utf8(upload_result.stdout)\n    print(f\"Response was: {output.strip()}\")\nelse:\n    print(\"ERROR - Could not upload results to concert\")\n    print(\"stdout:\", decode_utf8(upload_result.stdout))\n    print(\"stderr:\", decode_utf8(upload_result.stderr))\n    sys_exit(1)\n\n# Set business criticality/data_impact_risk on the application (same\n# pattern as Trivy_GitHub_Scan - without this, findings default to\n# \"Deprioritized\" regardless of raw CVE severity). Ingestion is async, so\n# poll briefly for the application record to appear before patching it.\n# Non-fatal if this fails - the scan itself already succeeded.\nif application_name and (criticality is not None or data_impact_risk is not None):\n    apps_url = urljoin(concert_url, \"/core/api/v1/applications\")\n    concert_headers = [\n        f\"Authorization: C_API_KEY {concert_api_key}\",\n        f\"InstanceId: {concert_instance_id}\",\n    ]\n    application_id = None\n    for attempt in range(10):\n        list_command = [\"curl\", \"--silent\", \"--show-error\", \"--request\", \"GET\", \"--url\", apps_url]\n        for h in concert_headers:\n            list_command.extend([\"--header\", h])\n        list_result = run(list_command, check=False, stdout=PIPE, stderr=PIPE)\n        if list_result.returncode == 0:\n            try:\n                apps = json_loads(decode_utf8(list_result.stdout)).get(\"applications\", [])\n                match = next((a for a in apps if a.get(\"name\") == application_name), None)\n                if match:\n                    application_id = match[\"id\"]\n                    break\n            except Exception:\n                pass\n        sleep(3)\n\n    if application_id:\n        patch_body = {}\n        if criticality is not None:\n            patch_body[\"criticality\"] = criticality\n        if data_impact_risk is not None:\n            patch_body[\"data_impact_risk\"] = data_impact_risk\n        patch_command = [\n            \"curl\", \"--silent\", \"--show-error\", \"--request\", \"PATCH\",\n            \"--url\", f\"{apps_url}/{application_id}\",\n            \"--header\", \"Content-Type: application/json\",\n        ]\n        for h in concert_headers:\n            patch_command.extend([\"--header\", h])\n        patch_command.extend([\"--data\", json_dumps(patch_body)])\n        patch_result = run(patch_command, check=False, stdout=PIPE, stderr=PIPE)\n        if patch_result.returncode == 0:\n            print(f\"Set criticality/data_impact_risk on {application_name}: {patch_body}\")\n        else:\n            print(f\"WARNING - Could not set criticality on {application_name} (non-fatal):\", decode_utf8(patch_result.stderr))\n    else:\n        print(f\"WARNING - Could not find application {application_name} to set criticality on (non-fatal, scan itself succeeded)\")\n"
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
+                },
+                {
+                    "name": "parameters",
+                    "value": "{\n    \"ssh_host\": $ssh_host,\n    \"ssh_port\": $ssh_port,\n    \"ssh_user\": $ssh_user,\n    \"ssh_private_key\": $ssh_private_key,\n    \"ssh_use_sudo\": $ssh_use_sudo,\n    \"concert_url\": $concert_url,\n    \"concert_api_key\": $concert_api_key,\n    \"concert_instance_id\": $concert_instance_id,\n    \"concert_allow_insecure\": $concert_allow_insecure,\n    \"application_name\": $application_name,\n    \"application_version\": $application_version,\n    \"criticality\": $criticality,\n    \"data_impact_risk\": $data_impact_risk\n}"
+                }
+            ]
+        },
+        {
+            "action": "assign",
+            "name": "copy_scan_result",
+            "variable": "$result",
+            "value": "$trivy_ssh_host_scan.result"
+        }
+    ],
+    "variables": [
+        {
+            "name": "result",
+            "required": false,
+            "isInput": false,
+            "isOutput": true,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "any"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "ssh_host",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"158.175.71.20\""
+        },
+        {
+            "name": "ssh_port",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "30238"
+        },
+        {
+            "name": "ssh_user",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"itzuser\""
+        },
+        {
+            "name": "ssh_private_key",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\"",
+            "meta": {
+                "notLogged": true,
+                "subType": "password"
+            }
+        },
+        {
+            "name": "ssh_use_sudo",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "boolean"
+            },
+            "value": "true"
+        },
+        {
+            "name": "concert_url",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com\""
+        },
+        {
+            "name": "concert_api_key",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\"",
+            "meta": {
+                "notLogged": true,
+                "subType": "password"
+            }
+        },
+        {
+            "name": "concert_instance_id",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"0000-0000-0000-0000\""
+        },
+        {
+            "name": "concert_allow_insecure",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "boolean"
+            },
+            "value": "false"
+        },
+        {
+            "name": "application_name",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"rhel-lab-vm\""
+        },
+        {
+            "name": "application_version",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"1.0.0\""
+        },
+        {
+            "name": "criticality",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "3"
+        },
+        {
+            "name": "data_impact_risk",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "3"
+        }
+    ],
+    "meta": {
+        "workerGroup": "default",
+        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy (rootfs scan run on the target via SSH), then ingests the CycloneDX result into Concert as a code_scan against an application - same ingestion path as Trivy_GitHub_Scan/Trivy_Image_Scan, just pointed at a live host instead of a repo or image.",
+        "layout": "flow",
+        "numberOfBlocks": 2,
+        "version": 5,
+        "tags": [
+            {
+                "name": "Consumer",
+                "value": "Concert"
+            },
+            {
+                "name": "Category",
+                "value": "Vulnerability"
+            }
+        ]
+    },
+    "finally": null
+}

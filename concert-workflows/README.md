@@ -33,6 +33,7 @@ concert-workflows/
 |---|---|
 | [Trivy_GitHub_Scan](discovery/Trivy_GitHub_Scan) | Trivy SCA scan of a GitHub repo, CycloneDX report ingested into Concert. Run once per app (`bankdemo`, then `fraud-cve`) - trigger live, in front of the audience, to show Concert connecting to GitHub and detecting CVEs from nothing. Also sets the scanned application's `criticality`/`data_impact_risk` (needed so findings get prioritized instead of defaulting to "Deprioritized"). |
 | [Trivy_Image_Scan](discovery/Trivy_Image_Scan) | Trivy scan of the built container image (OS packages + bundled libraries), same `code_scan` ingestion path - workaround for `build_artifacts` registration being broken on this Concert install (see the top-level bug report). |
+| [Trivy_SSH_Host_Scan](discovery/Trivy_SSH_Host_Scan) | Trivy OS-level scan of a live Linux host reached over SSH (rootfs scan run on the target itself, driven remotely) - same `code_scan` ingestion path, for CVE detection on a bare VM rather than a repo or container image. **Network reachability from Concert to the target host is unconfirmed** - see its README. |
 | [Simulate_CMDB_Applications](discovery/Simulate_CMDB_Applications) | Registers 3 fictional legacy applications directly via the core API (no scan behind them), each with a description naming a famous CVE (WannaCry/Heartbleed/Shellshock) that doesn't fit this demo's real stack. Stay "Manual" by design - contrast with the automated remediation on bankdemo/fraud-cve. |
 
 ## remediation/ - fix things
@@ -88,6 +89,7 @@ to it for import:
 | Reset_Demo | [`reset-demo/Reset_Demo/Reset_Demo.zip`](reset-demo/Reset_Demo/Reset_Demo.zip) |
 | Trivy_GitHub_Scan | [`discovery/Trivy_GitHub_Scan/Trivy_GitHub_Scan.zip`](discovery/Trivy_GitHub_Scan/Trivy_GitHub_Scan.zip) |
 | Trivy_Image_Scan | [`discovery/Trivy_Image_Scan/Trivy_Image_Scan.zip`](discovery/Trivy_Image_Scan/Trivy_Image_Scan.zip) |
+| Trivy_SSH_Host_Scan | [`discovery/Trivy_SSH_Host_Scan/Trivy_SSH_Host_Scan.zip`](discovery/Trivy_SSH_Host_Scan/Trivy_SSH_Host_Scan.zip) |
 | Simulate_CMDB_Applications | [`discovery/Simulate_CMDB_Applications/Simulate_CMDB_Applications.zip`](discovery/Simulate_CMDB_Applications/Simulate_CMDB_Applications.zip) |
 | Maven_Package_Upgrade | [`remediation/Maven_Package_Upgrade/Maven_Package_Upgrade.zip`](remediation/Maven_Package_Upgrade/Maven_Package_Upgrade.zip) |
 | Spring_Property_Upgrade | [`remediation/Spring_Property_Upgrade/Spring_Property_Upgrade.zip`](remediation/Spring_Property_Upgrade/Spring_Property_Upgrade.zip) |
