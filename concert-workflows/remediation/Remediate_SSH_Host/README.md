@@ -50,6 +50,24 @@ One `system/FaaS/Python` block:
    isn't in the configured repos) - fails the workflow run visibly in
    Concert rather than silently reporting success.
 
+## A caveat confirmed live: Trivy's own bundled Go dependencies
+
+The first live run against the AWS test host surfaced a real one: a
+`rootfs` scan of `/` also picks up `lang-pkgs` findings, not just
+`os-pkgs` (RPM) ones - specifically, once this workflow installs Trivy on
+the target, Trivy's *own compiled binary* embeds Go module versions
+(`golang.org/x/net`, `oras.land/oras-go/v2`, `github.com/sigstore/...`,
+`stdlib`) that Trivy then dutifully reports vulnerabilities for on the
+next scan. Feeding those names to `dnf update` fails outright (`No match
+for argument: golang.org/x/net` - it isn't an RPM package, there's nothing
+for dnf to look up). `extract_fixable_vulns()` now filters to
+`Class == "os-pkgs"` before building the update package list, so only
+real RPM packages are ever passed to `dnf`/`yum`. Language-level findings
+like Trivy's own bundled dependencies still show up in the raw scan
+pushed to Concert (accurate - that binary genuinely is on the host now),
+they're just correctly excluded from what this workflow tries to "fix"
+via the package manager, since there's no package-manager fix for them.
+
 ## A caveat worth knowing: kernel CVEs
 
 If `kernel`/`kernel-core` is among the updated packages, the RPM database
