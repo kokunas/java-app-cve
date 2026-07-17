@@ -46,6 +46,7 @@ Individual steps (each opens one PR):
 | [Spring_Property_Upgrade](remediation/Spring_Property_Upgrade) | CVE-2022-22965 (Spring4Shell) - bumps the `spring-framework.version` **property** in `pom.xml` instead (spring-core isn't a direct dependency here) |
 | [SQLi_Code_Remediation](remediation/SQLi_Code_Remediation) | CWE-89 (SQL injection, not a CVE - lives in this repo's own code) - rewrites string concatenation to bind parameters |
 | [Verify_And_Notify](remediation/Verify_And_Notify) | Runs the isofunctional test suite + a fresh Trivy re-scan against the now-merged `main`, pushes the re-scan to Concert, marks the matching native Concert action `success`/`failed`, and emails the result |
+| [Remediate_SSH_Host](remediation/Remediate_SSH_Host) | OS-package CVEs on a live Linux host reached over SSH (no PR involved - there's no git repo behind a scanned host) - `dnf`/`yum update` on exactly the packages Trivy found a fix for, re-scans to confirm, pushes the result to Concert, and closes out the matching native action, same as Verify_And_Notify but for a host instead of a repo |
 
 Orchestrators (nest the individual steps above into one trigger):
 
@@ -97,6 +98,7 @@ to it for import:
 | Verify_And_Notify | [`remediation/Verify_And_Notify/Verify_And_Notify.zip`](remediation/Verify_And_Notify/Verify_And_Notify.zip) |
 | Remediate_All (+ 3 nested subflows) | [`remediation/Remediate_All/Remediate_All.zip`](remediation/Remediate_All/Remediate_All.zip) |
 | Remediate_FraudCve (+ 2 nested subflows) | [`remediation/Remediate_FraudCve/Remediate_FraudCve.zip`](remediation/Remediate_FraudCve/Remediate_FraudCve.zip) |
+| Remediate_SSH_Host | [`remediation/Remediate_SSH_Host/Remediate_SSH_Host.zip`](remediation/Remediate_SSH_Host/Remediate_SSH_Host.zip) |
 
 Console -> Workflows -> Import -> select the `.zip`. See
 [Importing/exporting Concert workflows](https://www.ibm.com/docs/en/rapid-network-auto/1.1.x?topic=workflows-importing-exporting)
