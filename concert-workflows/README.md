@@ -33,7 +33,8 @@ concert-workflows/
 |---|---|
 | [Trivy_GitHub_Scan](discovery/Trivy_GitHub_Scan) | Trivy SCA scan of a GitHub repo, CycloneDX report ingested into Concert. Run once per app (`bankdemo`, then `fraud-cve`) - trigger live, in front of the audience, to show Concert connecting to GitHub and detecting CVEs from nothing. Also sets the scanned application's `criticality`/`data_impact_risk` (needed so findings get prioritized instead of defaulting to "Deprioritized"). |
 | [Trivy_Image_Scan](discovery/Trivy_Image_Scan) | Trivy scan of the built container image (OS packages + bundled libraries), same `code_scan` ingestion path - workaround for `build_artifacts` registration being broken on this Concert install (see the top-level bug report). |
-| [Trivy_SSH_Host_Scan](discovery/Trivy_SSH_Host_Scan) | Trivy OS-level scan of a live Linux host reached over SSH (rootfs scan run on the target itself, driven remotely). Built from native blocks matching IBM's own published patterns - `Common/SSH`, a JS `function` block, and the official `Import Data/Upload Files to Concert` block (`data_type: vm_scan`, not `code_scan`). **Where to create the `ssh_auth`/`concert_auth` credentials in this Concert install is still unresolved** - see its README. |
+| [Sync_AWS_Linux_Bulletin](discovery/Sync_AWS_Linux_Bulletin) | **Prerequisite** for `Trivy_SSH_Host_Scan`'s findings to generate a native `OS`-type auto-remediation action - unmodified IBM sample that scrapes the real Amazon Linux Security Advisory pages and populates Concert's `os_advisory_cache`. Run once, no inputs needed. |
+| [Trivy_SSH_Host_Scan](discovery/Trivy_SSH_Host_Scan) | Trivy OS-level scan of a live Linux host reached over SSH (script uploaded via SFTP, invoked by its bare path over SSH, output fetched via SFTP - `Common/SSH`'s `command` field cannot run any multi-word command in this Concert install, confirmed live). Uploads the result as Concert's native `vm_scan` CSV via the official `Import Data/Upload Files to Concert` block. |
 | [Simulate_CMDB_Applications](discovery/Simulate_CMDB_Applications) | Registers 3 fictional legacy applications directly via the core API (no scan behind them), each with a description naming a famous CVE (WannaCry/Heartbleed/Shellshock) that doesn't fit this demo's real stack. Stay "Manual" by design - contrast with the automated remediation on bankdemo/fraud-cve. |
 
 ## remediation/ - fix things
@@ -90,6 +91,7 @@ to it for import:
 | Reset_Demo | [`reset-demo/Reset_Demo/Reset_Demo.zip`](reset-demo/Reset_Demo/Reset_Demo.zip) |
 | Trivy_GitHub_Scan | [`discovery/Trivy_GitHub_Scan/Trivy_GitHub_Scan.zip`](discovery/Trivy_GitHub_Scan/Trivy_GitHub_Scan.zip) |
 | Trivy_Image_Scan | [`discovery/Trivy_Image_Scan/Trivy_Image_Scan.zip`](discovery/Trivy_Image_Scan/Trivy_Image_Scan.zip) |
+| Sync_AWS_Linux_Bulletin | [`discovery/Sync_AWS_Linux_Bulletin/Sync_AWS_Linux_Bulletin.zip`](discovery/Sync_AWS_Linux_Bulletin/Sync_AWS_Linux_Bulletin.zip) |
 | Trivy_SSH_Host_Scan | [`discovery/Trivy_SSH_Host_Scan/Trivy_SSH_Host_Scan.zip`](discovery/Trivy_SSH_Host_Scan/Trivy_SSH_Host_Scan.zip) |
 | Simulate_CMDB_Applications | [`discovery/Simulate_CMDB_Applications/Simulate_CMDB_Applications.zip`](discovery/Simulate_CMDB_Applications/Simulate_CMDB_Applications.zip) |
 | Maven_Package_Upgrade | [`remediation/Maven_Package_Upgrade/Maven_Package_Upgrade.zip`](remediation/Maven_Package_Upgrade/Maven_Package_Upgrade.zip) |
