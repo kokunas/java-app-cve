@@ -4,7 +4,7 @@
     "blocks": [
         {
             "action": "comment",
-            "value": "Rebuilt with native Concert blocks (Common/SSH, Common/String, Common/JSON, Common/HTTP) instead of a custom Python script - see the workflow README for what's still unverified live (the HTTP Request attachments/body combination for the multipart upload)."
+            "value": "Rebuilt with native Concert blocks matching IBM's own published patterns (RHEL_SCAN_OSCAP_GRYPE, Apply_Amazon_Linux_Patch): Common/SSH for remote commands, a plain JS function block for the specVersion patch + metadata (no FaaS/Python sandbox), and the official system/IBM/Concert v2/Import Data/Upload Files to Concert block (data_type=vm_scan) instead of a raw HTTP call."
         },
         {
             "action": "system/Common/SSH/SSH",
@@ -16,7 +16,8 @@
                 },
                 {
                     "name": "command",
-                    "value": "\"command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)\""
+                    "value": "\"command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)\"",
+                    "type": "const"
                 }
             ]
         },
@@ -30,85 +31,30 @@
                 },
                 {
                     "name": "command",
-                    "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format cyclonedx --quiet --output /tmp/trivy-scan.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-scan.json\\nsudo rm -f /tmp/trivy-scan.json\""
+                    "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format cyclonedx --quiet --output /tmp/trivy-scan.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-scan.json\\nsudo rm -f /tmp/trivy-scan.json\"",
+                    "type": "const"
                 }
             ]
         },
         {
-            "action": "system/Common/String/String Replace",
-            "name": "PatchSpecVersion",
-            "inputs": [
-                {
-                    "name": "str1",
-                    "value": "$RunScan.result"
-                },
-                {
-                    "name": "str2",
-                    "value": "\"\\\"specVersion\\\"\\\\s*:\\\\s*\\\"[^\\\"]*\\\"\""
-                },
-                {
-                    "name": "str3",
-                    "value": "\"\\\"specVersion\\\":\\\"1.5\\\"\""
-                }
-            ]
+            "name": "BuildPayload",
+            "function": "$patched_scan = $RunScan.result.replace(/\"specVersion\"\\s*:\\s*\"[^\"]*\"/, '\"specVersion\":\"1.5\"');\n$metadata_str = JSON.stringify({\n    scanner_name: \"trivy\",\n    application_name: $application_name,\n    application_version: $application_version,\n    target: $target_label\n});"
         },
         {
-            "action": "assign",
-            "name": "BuildMetadataObject",
-            "variable": "$metadata_obj",
-            "value": "{\n    \"scanner_name\": \"trivy\",\n    \"application_name\": $application_name,\n    \"application_version\": $application_version,\n    \"target\": $target_label\n}"
-        },
-        {
-            "action": "system/Common/JSON/JSON Stringify",
-            "name": "StringifyMetadata",
+            "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
+            "name": "IngestScan",
             "inputs": [
                 {
-                    "name": "object",
-                    "value": "$metadata_obj"
-                }
-            ]
-        },
-        {
-            "action": "system/Common/String/String Append",
-            "name": "BuildAuthHeader",
-            "inputs": [
-                {
-                    "name": "str1",
-                    "value": "\"C_API_KEY \""
+                    "name": "authKey",
+                    "value": "$concert_auth"
                 },
                 {
-                    "name": "str2",
-                    "value": "$concert_api_key"
-                }
-            ]
-        },
-        {
-            "action": "system/Common/HTTP/HTTP Request",
-            "name": "UploadToConcert",
-            "inputs": [
-                {
-                    "name": "method",
-                    "value": "\"POST\""
+                    "name": "file",
+                    "value": "{\n    \"data_type\": \"vm_scan\",\n    \"metadata\": $metadata_str,\n    \"filename\": [$patched_scan]\n}"
                 },
                 {
-                    "name": "host",
-                    "value": "$concert_url"
-                },
-                {
-                    "name": "path",
-                    "value": "\"/ingestion/api/v1/upload_files\""
-                },
-                {
-                    "name": "headers",
-                    "value": "{\n    \"Authorization\": $BuildAuthHeader.result,\n    \"InstanceId\": $concert_instance_id,\n    \"Content-Type\": \"multipart/form-data\"\n}"
-                },
-                {
-                    "name": "body",
-                    "value": "{\n    \"data_type\": \"code_scan\",\n    \"metadata\": $StringifyMetadata.result\n}"
-                },
-                {
-                    "name": "attachments",
-                    "value": "[{\n    \"key\": \"filename\",\n    \"content\": $PatchSpecVersion.result,\n    \"filename\": \"ssh-host-scan.json\",\n    \"encoding\": \"utf-8\"\n}]"
+                    "name": "fileType",
+                    "value": "\"json\""
                 }
             ]
         },
@@ -116,7 +62,7 @@
             "action": "assign",
             "name": "copy_scan_result",
             "variable": "$result",
-            "value": "$UploadToConcert.result"
+            "value": "$IngestScan.result"
         }
     ],
     "variables": [
@@ -140,48 +86,28 @@
             "type": {
                 "type": "any"
             },
-            "value": "\"concert-cve-ssh-key\"",
+            "value": "\"\"",
             "meta": {
-                "authType": "Common/SSH",
-                "description": "Name of a Common/SSH credential stored in Concert (Administration -> Credentials -> Add -> Common/SSH) holding the target host/port/username/private key. Create it once, reference it here by name - the raw key is never pasted into this workflow's trigger payload."
+                "authType": "ANY",
+                "subType": "authentication",
+                "description": "Common/SSH credential stored in Concert (Administration -> Credentials) for the target host - host/port/username/private key never appear in this workflow's own inputs."
             }
         },
         {
-            "name": "concert_url",
+            "name": "concert_auth",
             "required": true,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
             "type": {
-                "type": "string"
-            },
-            "value": "\"https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com\""
-        },
-        {
-            "name": "concert_api_key",
-            "required": true,
-            "isInput": true,
-            "isOutput": false,
-            "level": "INTERMEDIATE",
-            "type": {
-                "type": "string"
+                "type": "any"
             },
             "value": "\"\"",
             "meta": {
-                "notLogged": true,
-                "subType": "password"
+                "authType": "ANY",
+                "subType": "authentication",
+                "description": "Stored Concert API credential (url/api key/instance id), same one used by other IBM-published workflows' Import Data / Action Insights blocks."
             }
-        },
-        {
-            "name": "concert_instance_id",
-            "required": true,
-            "isInput": true,
-            "isOutput": false,
-            "level": "INTERMEDIATE",
-            "type": {
-                "type": "string"
-            },
-            "value": "\"0000-0000-0000-0000\""
         },
         {
             "name": "application_name",
@@ -216,15 +142,37 @@
             },
             "value": "\"\"",
             "meta": {
-                "description": "Free-text label for the scanned host, only used in the Concert ingestion metadata (e.g. \"ec2-user@52.59.245.141\")"
+                "description": "Free-text label for the scanned host, only used in the ingestion metadata (e.g. \"ec2-user@52.59.245.141\")"
             }
+        },
+        {
+            "name": "patched_scan",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
+        },
+        {
+            "name": "metadata_str",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
         }
     ],
     "meta": {
         "workerGroup": "default",
-        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, built entirely from native Concert blocks (Common/SSH, Common/String, Common/JSON, Common/HTTP) instead of a custom FaaS/Python script - the SSH key lives in a stored Concert credential, never in this workflow's own inputs.",
+        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, built from native Concert blocks matching IBM's own published workflow patterns (Common/SSH, a JS function block, and the official Import Data / Upload Files to Concert ingestion block with data_type=vm_scan).",
         "layout": "flow",
-        "numberOfBlocks": 9,
+        "numberOfBlocks": 6,
         "version": 5,
         "tags": [
             {

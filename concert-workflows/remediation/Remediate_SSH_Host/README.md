@@ -1,103 +1,104 @@
 # 05 - Remediate a remote Linux host: Remediate SSH Host
 
-Custom Concert Workflow (same `system/FaaS/Python` block style as the rest
-of this repo) that remediates **OS-package CVEs on a live Linux host**
-reached over SSH - the counterpart to
-[Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan) for the
-remediation side, and the SSH-host equivalent of
-[Verify_And_Notify](../Verify_And_Notify).
+Remediates OS-package CVEs on a live Linux host reached over SSH - the
+counterpart to [Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan)
+for the remediation side.
 
-## Why this is a different workflow, not a reuse of Maven_Package_Upgrade/Verify_And_Notify
+**Rebuilt to match IBM's own published remediation pattern**, after
+downloading and inspecting the real, IBM-authored
+`Apply_Amazon_Linux_Patch` / `Apply_Linux_Patch` / `Test_Connection_to_RHEL`
+workflows from
+[`IBM/Concert`'s `concert-workflows/Vulnerability/Remediation`](https://github.com/IBM/Concert/tree/main/concert-workflows/Vulnerability/Remediation).
+Those apply OS patches via an **Ansible playbook** block
+(`system/Ansible/Playbook`), not raw SSH command strings - so this version
+does too, instead of the earlier `Common/SSH`-only rebuild.
 
-Every other remediation workflow in this repo fixes a **Maven dependency
-version in a `pom.xml`** by opening a GitHub PR. That doesn't apply here:
-a host scanned by `Trivy_SSH_Host_Scan` has no backing git repo (nothing
-to open a PR against - this is also a known limitation of this Concert
-install, see the [top-level README](../../../README.md#known-ibm-concert-platform-limitations)),
-and the CVEs themselves are in **RPM packages** (`openssl`, `glibc`,
-`kernel`, ...), not Java dependencies. The fix for an OS package CVE is a
-package manager update on the host itself, so that's what this workflow
-automates instead of a PR.
+## Why Trivy instead of official OS advisories, and why not the full fleet pipeline
+
+IBM's official workflows source their patch list from a **separate
+pipeline this repo doesn't have imported**: `Discover_Redhat_Advisories` /
+`Sync_AWS_Linux_Bulletin` sync the vendor's own security bulletins
+(RHSA/ALAS) into Concert, some correlation step matches them against the
+host's installed packages, and *that* structured
+recommendation list is what `Apply_Amazon_Linux_Patch` consumes. Without
+that infrastructure, this workflow still uses **Trivy** (via
+`Common/SSH`, same as the scan workflow) to work out which packages need
+updating - a reasonable, self-contained substitute, matching the rest of
+this repo's Trivy-based approach.
+
+The official workflows are also built for a **fleet** (a `Config Data`
+table mapping many hostnames to credentials, `foreach`-ing over all of
+them). This one stays scoped to a single host, matching what the rest of
+this repo's remediation workflows do (one application/target per
+trigger) - no `Config Data` needed, just a single `ssh_auth` credential.
 
 ## What it does
 
-One `system/FaaS/Python` block:
-1. SSHes in (same key-normalization/sudo handling as
-   [Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan)), ensures
-   Trivy is present, and detects the package manager (`dnf` or `yum` -
-   **RPM-based distros only**, matching this repo's Red Hat-family focus;
-   Debian/Ubuntu `apt` hosts are not supported by this workflow).
-2. Runs a **pre-remediation scan** (Trivy's native JSON format) and
-   collects every vulnerable package that has a `FixedVersion` available
-   - CVEs with no fix published upstream yet are correctly left alone,
-   since there's nothing to update to.
-3. Runs `{dnf|yum} update -y <package1> <package2> ...` against **exactly
-   that package list** (not a blanket `update -y` of the whole system -
-   keeps the change scoped to what was actually found vulnerable).
-4. Runs a **post-remediation scan**, computes which of the originally
-   fixable CVE IDs are gone vs. still present, and prints the diff.
-5. Pushes a fresh CycloneDX scan to Concert (same `code_scan` ingestion
-   path as `Trivy_SSH_Host_Scan`) so its CVE list/Arena view reflects the
-   post-remediation state instead of only ever showing the original scan.
-6. Prints a pass/fail notification (SMTP sending disabled for this demo
-   instance, same as [Verify_And_Notify](../Verify_And_Notify) - prints
-   the email content instead of sending it).
-7. Searches Concert for any `auto_remediation` action already open on
-   `application_name` and marks it `success`/`failed` to match the actual
-   outcome, so the Action Center doesn't show it stuck on "created".
-8. Exits non-zero if any originally-fixable CVE is still present
-   afterwards (e.g. no reboot yet for a kernel fix, or the fixed version
-   isn't in the configured repos) - fails the workflow run visibly in
-   Concert rather than silently reporting success.
+1. **`PreScan`** (`Common/SSH`): installs Trivy if needed, scans with
+   `trivy rootfs --format json`.
+2. **`ExtractPrePackages`** (JS `function`): parses the scan, keeps only
+   `Class == "os-pkgs"` vulnerabilities with a `FixedVersion` (excludes
+   `lang-pkgs` findings like Trivy's own bundled Go dependencies - a real
+   bug hit live in the previous Python version, see git history).
+3. **`if $vulnerable_packages.length > 0`**:
+   - **then**: builds `dnf update -y <packages>` as `$patch_command`,
+     runs it via **`ApplyUpdates`** (`system/Ansible/Playbook`,
+     `become: yes`), **reboots the host** if the update succeeded (`reboot`
+     Ansible module, matching `Apply_Amazon_Linux_Patch`'s behavior - this
+     is a real change from the previous Python version, which only warned
+     about needing a reboot for kernel fixes instead of doing it), re-scans
+     (`PostScanJson` + `PostScanCdx`), compares which of the originally-
+     fixable CVE IDs are now gone (`ComparePrePost`), pushes the
+     post-remediation CycloneDX scan to Concert
+     (`system/IBM/Concert v2/Import Data/Upload Files to Concert`,
+     `data_type: "vm_scan"`), finds any matching native `auto_remediation`
+     action (`system/IBM/Concert v2/Action Insights/Search in Actions`)
+     and marks it `success`/`failed`
+     (`.../Action Insights/Update Existing Action`).
+   - **else**: nothing to do, sets `$result` accordingly and skips
+     Ansible/re-scan/upload entirely.
 
-## A caveat confirmed live: Trivy's own bundled Go dependencies
+## Same unresolved credential-store question as Trivy_SSH_Host_Scan
 
-The first live run against the AWS test host surfaced a real one: a
-`rootfs` scan of `/` also picks up `lang-pkgs` findings, not just
-`os-pkgs` (RPM) ones - specifically, once this workflow installs Trivy on
-the target, Trivy's *own compiled binary* embeds Go module versions
-(`golang.org/x/net`, `oras.land/oras-go/v2`, `github.com/sigstore/...`,
-`stdlib`) that Trivy then dutifully reports vulnerabilities for on the
-next scan. Feeding those names to `dnf update` fails outright (`No match
-for argument: golang.org/x/net` - it isn't an RPM package, there's nothing
-for dnf to look up). `extract_fixable_vulns()` now filters to
-`Class == "os-pkgs"` before building the update package list, so only
-real RPM packages are ever passed to `dnf`/`yum`. Language-level findings
-like Trivy's own bundled dependencies still show up in the raw scan
-pushed to Concert (accurate - that binary genuinely is on the host now),
-they're just correctly excluded from what this workflow tries to "fix"
-via the package manager, since there's no package-manager fix for them.
+See [Trivy_SSH_Host_Scan's README](../../discovery/Trivy_SSH_Host_Scan#unresolved-where-do-ssh_auth--concert_auth-actually-get-created) -
+`ssh_auth` (also used as the Ansible playbook's `authKey` - IBM's own
+`Test_Connection_to_RHEL` example confirms the same credential type works
+for both `Common/SSH` and `Ansible/Playbook` blocks) and `concert_auth`
+both need to resolve to *something* Concert lets you create, and that
+place hasn't been located in this install yet.
 
-## A caveat worth knowing: kernel CVEs
+## `hosts: canary` is IBM's own fixed convention, not a typo
 
-If `kernel`/`kernel-core` is among the updated packages, the RPM database
-(and therefore Trivy's next scan) will show the CVE as fixed right away,
-but the **running** kernel only picks up the fix after a reboot. The
-workflow prints a warning when this happens - it does not reboot the host
-for you.
+Both `Test_Connection_to_RHEL` and `Apply_Amazon_Linux_Patch` target
+`hosts: canary` in their playbooks with no visible inventory file - the
+actual host/credentials come entirely from the `authKey` passed to the
+`Ansible/Playbook` block, which presumably generates a temporary inventory
+naming that group `canary` behind the scenes. Copied verbatim rather than
+guessing a different group name.
+
+## A caveat carried over from the previous version: kernel packages
+
+If `kernel`/`kernel-core` is among the updated packages, this version
+actually **does** reboot (unlike the previous one, which only warned) -
+matching the official pattern. Still worth knowing that the RPM database
+shows the fix immediately, while the running kernel only truly picks it
+up once that reboot completes - which is exactly why the official
+playbook includes it.
 
 ## Inputs
 
-Same `ssh_*`/`concert_*` inputs as
-[Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan), plus:
-
 | Input | Required | Notes |
 |---|---|---|
-| `notify_email` | no | Recipient for the pass/fail summary - printed only, not actually sent (no SMTP relay configured for this demo instance) |
+| `ssh_auth` | yes | Credential for the target host (`Common/SSH` block *and* the Ansible playbook) |
+| `concert_auth` | yes | Credential for Concert's own API |
+| `application_name` / `application_version` | no | Must match the application this host was registered as by `Trivy_SSH_Host_Scan` |
 
-## Trigger payload for the AWS test host
+## Trigger payload
 
 ```json
 {
-  "ssh_host": "52.59.245.141",
-  "ssh_port": 22,
-  "ssh_user": "ec2-user",
-  "ssh_private_key": "<contents of concert-cve-test-key.pem>",
-  "ssh_use_sudo": true,
-  "concert_url": "https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com",
-  "concert_api_key": "<your Concert API key>",
-  "concert_instance_id": "0000-0000-0000-0000",
-  "concert_allow_insecure": false,
+  "ssh_auth": "<credential name>",
+  "concert_auth": "<credential name>",
   "application_name": "amazon-linux-demo",
   "application_version": "1.0.0"
 }
@@ -105,21 +106,33 @@ Same `ssh_*`/`concert_*` inputs as
 
 ## How to import
 
-Concert Workflows console -> Workflows -> Import -> `Remediate_SSH_Host.zip`
-(the picker greys out loose `.json` files - always import the `.zip`).
+Concert Workflows console -> Workflows -> Import -> `Remediate_SSH_Host.zip`.
+**Delete any previously-imported version first** - a stale/duplicate
+import was the suspected cause of a previous session appearing to keep
+running old code after a re-import.
 
-## Verified
+## Verified vs. not verified
 
-The embedded Python passes `py_compile`, and the two functions that carry
-the actual logic risk (`normalize_pem_key`, `extract_fixable_vulns`) were
-unit-tested locally against the exact code extracted from the final
-generated JSON: `normalize_pem_key` was checked against three variants of
-a freshly generated test RSA key (newlines collapsed to spaces, collapsed
-to a literal `\n`, and already correct) with `ssh-keygen -y` confirming
-each reconstruction is a valid PEM; `extract_fixable_vulns` was checked
-against a synthetic Trivy JSON report to confirm it correctly keeps only
-vulnerabilities with a non-empty `FixedVersion`. **Not independently
-verified**: an actual live run against a real host (do this before relying
-on it for a demo, same caveat as every other workflow here that touches
-live infrastructure) and the SMTP send path (disabled, matches
-Verify_And_Notify).
+**Verified locally**:
+- Every JS `function` block (`ExtractPrePackages`, `ComparePrePost`,
+  `BuildActionUpdates`, `BuildPatchCommand`) was *executed* (not just
+  syntax-checked) in Node against realistic mock Trivy JSON / Concert
+  action-search responses, confirming: `lang-pkgs` findings are correctly
+  excluded, the pre/post CVE-ID diff correctly identifies a resolved CVE,
+  and the action-update payload shape matches.
+- The embedded Ansible playbook passes both `bash`-adjacent YAML parsing
+  (`PyYAML`) and a real `ansible-playbook --syntax-check`, with
+  `${$patch_command}` substituted for a realistic value first.
+- Every native block's action path and input names were copied from real,
+  working IBM-published workflows, not guessed.
+
+**Not verified - genuinely unconfirmed**:
+- Live end-to-end execution against a real Concert instance (same caveat
+  as the scan workflow - this has real infrastructure dependencies
+  I cannot exercise myself).
+- Whether `Search in Actions`' filter actually supports an
+  `application_name` condition the way this workflow assumes - IBM's own
+  example filtered by `status`/`risk_type`/`action_category` only, not
+  `application_name`; this workflow's filter shape is carried over from
+  this repo's own pre-existing (also not confirmed live end-to-end)
+  `Verify_And_Notify` convention.
