@@ -4,7 +4,33 @@
     "blocks": [
         {
             "action": "comment",
-            "value": "Rebuilt to match IBM's own published remediation pattern (Apply_Amazon_Linux_Patch/Apply_Linux_Patch): Common/SSH to detect with Trivy (this repo has no Red Hat/Amazon Linux advisory-sync workflows imported, so Trivy substitutes for that), system/Ansible/Playbook to apply the fix and reboot, and the official Action Insights blocks to close out Concert's native auto_remediation action - instead of a custom Python script."
+            "value": "Rebuilt to match IBM's own published remediation pattern (Apply_Amazon_Linux_Patch/Apply_Linux_Patch): detect with Trivy (this repo has no Red Hat/Amazon Linux advisory-sync workflows imported, so Trivy substitutes for that), system/Ansible/Playbook to apply the fix and reboot, and the official Action Insights blocks to close out Concert's native auto_remediation action. Scan steps use SFTP Put/Get File instead of Common/SSH's command field directly, since that field cannot run any multi-word command in this Concert install (confirmed live - see Trivy_SSH_Host_Scan's README for the full bisection)."
+        },
+        {
+            "action": "system/Common/SFTP/SFTP Put File",
+            "name": "UploadPreScanScript",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$ssh_auth"
+                },
+                {
+                    "name": "file",
+                    "value": "\"/tmp/trivy_pre_scan.sh\""
+                },
+                {
+                    "name": "contents",
+                    "value": "\"#!/bin/bash\\ncommand -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)\\nsudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json /\\n\""
+                },
+                {
+                    "name": "mode",
+                    "value": "\"0755\""
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
+                }
+            ]
         },
         {
             "action": "while",
@@ -21,7 +47,7 @@
                         },
                         {
                             "name": "command",
-                            "value": "\":' ; (command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)) && sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json / && cat /tmp/trivy-pre.json && sudo rm -f /tmp/trivy-pre.json ; ':\"",
+                            "value": "\"/tmp/trivy_pre_scan.sh\"",
                             "type": "const"
                         },
                         {
@@ -63,8 +89,26 @@
             ]
         },
         {
+            "action": "system/Common/SFTP/SFTP Get File",
+            "name": "FetchPreScanResult",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$ssh_auth"
+                },
+                {
+                    "name": "file",
+                    "value": "\"/tmp/trivy-pre.json\""
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
+                }
+            ]
+        },
+        {
             "name": "ExtractPrePackages",
-            "function": "if (!$PreScan.result || !$PreScan.result.trim()) {\n    throw new Error(\n        \"PreScan produced no output (exitcode=\" + $PreScan.exitcode + \", error=\" + $PreScan.error +\n        \") - likely the SSH block's inactivity timeout fired before the trivy scan finished writing \" +\n        \"its output file. Check the timeout input on the PreScan block.\"\n    );\n}\nconst report = JSON.parse($PreScan.result);\nconst found = [];\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            found.push({id: vuln.VulnerabilityID, pkg: vuln.PkgName});\n        }\n    }\n}\n$pre_vuln_ids = found.map(f => f.id);\n$vulnerable_packages = [...new Set(found.map(f => f.pkg))].sort();\n"
+            "function": "if (!$PreScan.success || $PreScan.exitcode !== 0) {\n    throw new Error(\n        \"PreScan (the trivy_pre_scan.sh invocation) failed (exitcode=\" + $PreScan.exitcode + \", error=\" +\n        $PreScan.error + \") - check that UploadPreScanScript uploaded/marked it executable correctly.\"\n    );\n}\nif (!$FetchPreScanResult.result || !$FetchPreScanResult.result.trim()) {\n    throw new Error(\"FetchPreScanResult (SFTP Get File) returned no content even though PreScan reported success.\");\n}\nconst report = JSON.parse($FetchPreScanResult.result);\nconst found = [];\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            found.push({id: vuln.VulnerabilityID, pkg: vuln.PkgName});\n        }\n    }\n}\n$pre_vuln_ids = found.map(f => f.id);\n$vulnerable_packages = [...new Set(found.map(f => f.pkg))].sort();\n"
         },
         {
             "action": "if",
@@ -90,6 +134,32 @@
                     ]
                 },
                 {
+                    "action": "system/Common/SFTP/SFTP Put File",
+                    "name": "UploadPostScanJsonScript",
+                    "inputs": [
+                        {
+                            "name": "authKey",
+                            "value": "$ssh_auth"
+                        },
+                        {
+                            "name": "file",
+                            "value": "\"/tmp/trivy_post_scan.sh\""
+                        },
+                        {
+                            "name": "contents",
+                            "value": "\"#!/bin/bash\\nsudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json /\\n\""
+                        },
+                        {
+                            "name": "mode",
+                            "value": "\"0755\""
+                        },
+                        {
+                            "name": "encoding",
+                            "value": "\"utf-8\""
+                        }
+                    ]
+                },
+                {
                     "action": "while",
                     "name": "RetryPostScanJson",
                     "condition": "!$post_scan_ok && $post_scan_attempts < 5",
@@ -104,7 +174,7 @@
                                 },
                                 {
                                     "name": "command",
-                                    "value": "\":' ; sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json / && cat /tmp/trivy-post.json && sudo rm -f /tmp/trivy-post.json ; ':\"",
+                                    "value": "\"/tmp/trivy_post_scan.sh\"",
                                     "type": "const"
                                 },
                                 {
@@ -146,8 +216,26 @@
                     ]
                 },
                 {
+                    "action": "system/Common/SFTP/SFTP Get File",
+                    "name": "FetchPostScanJsonResult",
+                    "inputs": [
+                        {
+                            "name": "authKey",
+                            "value": "$ssh_auth"
+                        },
+                        {
+                            "name": "file",
+                            "value": "\"/tmp/trivy-post.json\""
+                        },
+                        {
+                            "name": "encoding",
+                            "value": "\"utf-8\""
+                        }
+                    ]
+                },
+                {
                     "name": "ComparePrePost",
-                    "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nif (!$PostScanJson.result || !$PostScanJson.result.trim()) {\n    throw new Error(\n        \"PostScanJson produced no output (exitcode=\" + $PostScanJson.exitcode + \", error=\" + $PostScanJson.error +\n        \") - likely the SSH block's inactivity timeout fired before the trivy scan finished writing \" +\n        \"its output file. Check the timeout input on the PostScanJson block.\"\n    );\n}\nconst postReport = JSON.parse($PostScanJson.result);\nconst postFixableIds = [];\nconst csvRows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\ncsvRows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (postReport.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            postFixableIds.push(vuln.VulnerabilityID);\n        }\n        csvRows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\nconst postIds = new Set(postFixableIds);\n$resolved_ids = $pre_vuln_ids.filter(id => !postIds.has(id));\n$still_present_ids = $pre_vuln_ids.filter(id => postIds.has(id));\n$remediation_ok = $still_present_ids.length === 0;\n\n$vm_scan_csv = csvRows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
+                    "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nif (!$PostScanJson.success || $PostScanJson.exitcode !== 0) {\n    throw new Error(\n        \"PostScanJson (the trivy_post_scan.sh invocation) failed (exitcode=\" + $PostScanJson.exitcode +\n        \", error=\" + $PostScanJson.error + \") - check that UploadPostScanScript uploaded/marked it executable correctly.\"\n    );\n}\nif (!$FetchPostScanResult.result || !$FetchPostScanResult.result.trim()) {\n    throw new Error(\"FetchPostScanResult (SFTP Get File) returned no content even though PostScanJson reported success.\");\n}\nconst postReport = JSON.parse($FetchPostScanResult.result);\nconst postFixableIds = [];\nconst csvRows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\ncsvRows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (postReport.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            postFixableIds.push(vuln.VulnerabilityID);\n        }\n        csvRows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\nconst postIds = new Set(postFixableIds);\n$resolved_ids = $pre_vuln_ids.filter(id => !postIds.has(id));\n$still_present_ids = $pre_vuln_ids.filter(id => postIds.has(id));\n$remediation_ok = $still_present_ids.length === 0;\n\n$vm_scan_csv = csvRows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
                 },
                 {
                     "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
@@ -450,7 +538,7 @@
     ],
     "meta": {
         "workerGroup": "default",
-        "description": "Remediates OS-package CVEs on a remote Linux host: detects with Trivy over Common/SSH (Class==os-pkgs, FixedVersion present), applies the update and reboots via an Ansible playbook (system/Ansible/Playbook, matching IBM's own Apply_Amazon_Linux_Patch pattern), re-scans to confirm, pushes the result to Concert (official Import Data block, data_type=vm_scan), and closes out any matching native auto_remediation action via the official Action Insights blocks.",
+        "description": "Remediates OS-package CVEs on a remote Linux host: detects with Trivy (script uploaded via SFTP Put File, invoked via its bare path over Common/SSH, output fetched via SFTP Get File - Class==os-pkgs, FixedVersion present), applies the update and reboots via an Ansible playbook (system/Ansible/Playbook, matching IBM's own Apply_Amazon_Linux_Patch pattern), re-scans to confirm, pushes the result to Concert (official Import Data block, data_type=vm_scan), and closes out any matching native auto_remediation action via the official Action Insights blocks.",
         "layout": "flow",
         "numberOfBlocks": 4,
         "version": 5,

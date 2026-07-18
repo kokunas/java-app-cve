@@ -34,7 +34,19 @@ trigger) - no `Config Data` needed, just a single `ssh_auth` credential.
 
 ## What it does
 
-1. **`PreScan`** (`Common/SSH`): installs Trivy if needed, scans with
+Both scan steps use the same `SFTP Put File` -> `Common/SSH` (bare script
+path only) -> `SFTP Get File` pattern as
+[Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan#the-actual-fix-sidestep-command-entirely-for-anything-beyond-a-bare-word) -
+`Common/SSH`'s `command` field cannot run any multi-word command at all
+in this Concert install (confirmed live there, after two failed
+quote-escaping attempts), so the actual scan logic lives in a script
+uploaded via SFTP, invoked by its bare path (a genuine single word), with
+its output fetched back via SFTP instead of `cat` over SSH stdout.
+
+1. **`UploadPreScanScript`** (`SFTP Put File`, `mode: "0755"`) +
+   **`PreScan`** (`Common/SSH`, `command` = `/tmp/trivy_pre_scan.sh`,
+   wrapped in a retry `while` loop) + **`FetchPreScanResult`**
+   (`SFTP Get File`): installs Trivy if needed, scans with
    `trivy rootfs --format json`.
 2. **`ExtractPrePackages`** (JS `function`): parses the scan, keeps only
    `Class == "os-pkgs"` vulnerabilities with a `FixedVersion` (excludes
@@ -46,10 +58,12 @@ trigger) - no `Config Data` needed, just a single `ssh_auth` credential.
      `become: yes`), **reboots the host** if the update succeeded (`reboot`
      Ansible module, matching `Apply_Amazon_Linux_Patch`'s behavior - this
      is a real change from the previous Python version, which only warned
-     about needing a reboot for kernel fixes instead of doing it), re-scans
-     (`PostScanJson`), compares which of the originally-fixable CVE IDs
-     are now gone and builds the Concert-native `vm_scan` CSV in the same
-     step (`ComparePrePost`), pushes it to Concert
+     about needing a reboot for kernel fixes instead of doing it),
+     re-scans (`UploadPostScanScript` -> `PostScanJson` ->
+     `FetchPostScanResult`, same SFTP pattern as step 1), compares which
+     of the originally-fixable CVE IDs are now gone and builds the
+     Concert-native `vm_scan` CSV in the same step (`ComparePrePost`),
+     pushes it to Concert
      (`system/IBM/Concert v2/Import Data/Upload Files to Concert`,
      `data_type: "vm_scan"`, `scanner_name: "concert"` - see
      [Trivy_SSH_Host_Scan's README](../../discovery/Trivy_SSH_Host_Scan#a-real-bug-found-live-vm_scan-needs-concerts-own-csv-shape-not-raw-trivy-jsoncyclonedx)

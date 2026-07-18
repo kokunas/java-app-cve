@@ -4,24 +4,31 @@
     "blocks": [
         {
             "action": "comment",
-            "value": "Uploads a Concert-native vm_scan CSV (CVE, Host IPAddress, Package, Package Version, Package Path, severity, Score, hasFix, Fixed Version, Description, Host Name - see IBM/Concert's use-case-data-files/vulnerabilities/vm_scan/vm_scan_concert_sample.csv), built from a Trivy JSON scan. Switched away from uploading raw CycloneDX/JSON with data_type=vm_scan after confirming live that Concert's vm_scan ingestion is format-specific per scanner_name (aws_inspector/nessus/qualys/concert) and doesn't attribute CVEs to a distinct host resource for an unrecognized scanner_name like 'trivy' - it still 202s and creates flat CVE Findings under the application, but Arena view can't differentiate them from application-code CVEs."
+            "value": "Common/SSH's 'command' field cannot run a multi-word command at all in this Concert install - confirmed live: a bare single word ('whoami') runs fine, but anything with a space fails with bash reporting the ENTIRE string as one not-found command (two different quote-escaping workarounds were tried and both failed identically live, ruling out simple re-quoting). Worked around entirely: the real script is written to the target via Common/SFTP/SFTP Put File (mode 0755, no command execution involved), then invoked via Common/SSH using ONLY its bare path as 'command' (a single word, matching the one case confirmed to work), and its output is retrieved via Common/SFTP/SFTP Get File instead of `cat` over SSH stdout - no multi-word SSH command needed anywhere in this workflow."
         },
         {
-            "action": "system/Common/SSH/SSH",
-            "name": "InstallTrivy",
+            "action": "system/Common/SFTP/SFTP Put File",
+            "name": "UploadScanScript",
             "inputs": [
                 {
                     "name": "authKey",
                     "value": "$ssh_auth"
                 },
                 {
-                    "name": "command",
-                    "value": "\":' ; command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0) ; ':\"",
-                    "type": "const"
+                    "name": "file",
+                    "value": "\"/tmp/trivy_scan.sh\""
                 },
                 {
-                    "name": "timeout",
-                    "value": "120"
+                    "name": "contents",
+                    "value": "\"#!/bin/bash\\ncommand -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)\\nsudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json /\\n\""
+                },
+                {
+                    "name": "mode",
+                    "value": "\"0755\""
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
                 }
             ]
         },
@@ -40,7 +47,7 @@
                         },
                         {
                             "name": "command",
-                            "value": "\":' ; sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && cat /tmp/trivy-scan.json && sudo rm -f /tmp/trivy-scan.json ; ':\"",
+                            "value": "\"/tmp/trivy_scan.sh\"",
                             "type": "const"
                         },
                         {
@@ -82,8 +89,26 @@
             ]
         },
         {
+            "action": "system/Common/SFTP/SFTP Get File",
+            "name": "FetchScanResult",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$ssh_auth"
+                },
+                {
+                    "name": "file",
+                    "value": "\"/tmp/trivy-scan.json\""
+                },
+                {
+                    "name": "encoding",
+                    "value": "\"utf-8\""
+                }
+            ]
+        },
+        {
             "name": "BuildVmScanCsv",
-            "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nif (!$RunScan.result || !$RunScan.result.trim()) {\n    throw new Error(\n        \"RunScan produced no output (exitcode=\" + $RunScan.exitcode + \", error=\" + $RunScan.error +\n        \") - likely the SSH block's inactivity timeout fired before the trivy scan finished writing \" +\n        \"its output file. Check the timeout input on the RunScan block.\"\n    );\n}\nconst report = JSON.parse($RunScan.result);\nconst rows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\nrows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        rows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\n$vm_scan_csv = rows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
+            "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nif (!$RunScan.success || $RunScan.exitcode !== 0) {\n    throw new Error(\n        \"RunScan (the trivy_scan.sh invocation) failed (exitcode=\" + $RunScan.exitcode + \", error=\" +\n        $RunScan.error + \") - check that the script was uploaded/marked executable correctly by \" +\n        \"UploadScanScript, and that the timeout on RunScan is long enough for a full scan.\"\n    );\n}\nif (!$FetchScanResult.result || !$FetchScanResult.result.trim()) {\n    throw new Error(\n        \"FetchScanResult (SFTP Get File on /tmp/trivy-scan.json) returned no content, even though \" +\n        \"RunScan itself reported success - the scan may have written its output file somewhere unexpected.\"\n    );\n}\nconst report = JSON.parse($FetchScanResult.result);\nconst rows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\nrows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        rows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\n$vm_scan_csv = rows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
         },
         {
             "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
@@ -215,7 +240,7 @@
     ],
     "meta": {
         "workerGroup": "default",
-        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, converts the result into Concert's native vm_scan CSV format (scanner_name=concert), and ingests it via the official Import Data/Upload Files to Concert block so CVEs attribute to the host as a distinct resource in Concert's Arena view.",
+        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, converts the result into Concert's native vm_scan CSV format (scanner_name=concert), and ingests it via the official Import Data/Upload Files to Concert block. Uses SFTP Put/Get File to sidestep a live-confirmed bug where Common/SSH's command field cannot run any multi-word command.",
         "layout": "flow",
         "numberOfBlocks": 6,
         "version": 5,

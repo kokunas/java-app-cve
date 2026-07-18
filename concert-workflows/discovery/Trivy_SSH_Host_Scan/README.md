@@ -10,7 +10,11 @@ scanning the rest of this repo's workflows focus on.
 specifically `RHEL_SCAN_OSCAP_GRYPE`, `Test_Connection_to_RHEL`,
 `Fetch_Scan_files_from_AWS_Inspector`):
 
-- `Common/SSH` for remote command execution.
+- `Common/SFTP` (Put/Get File) to transfer the actual scan script and its
+  output - `Common/SSH`'s `command` field turned out to only support a
+  bare single word in this Concert install (see below), so SFTP carries
+  everything that isn't a one-word command.
+- `Common/SSH` to invoke the uploaded script by its bare path.
 - A plain **JS `function` block** for building the upload payload - real,
   visible JavaScript in Concert's editor, not a hidden Python sandbox
   (confirmed this really is plain JS, not JSONata, directly from IBM's own
@@ -127,33 +131,52 @@ happened to already have Trivy installed from manually testing it
 directly over SSH during this same debugging session, which is why its
 failure was never visible.
 
-**Getting the exact quote character right took two attempts.** First
-guess: double quotes - reproduced `bash -c "\"echo hello\""` locally,
-matched the error exactly, so tried escaping with `:" ; cmd ; ":`. Lived
-tested: **failed identically**, this time reporting the entire
-double-quote-escaped string (escape characters included) as one
-not-found command. That only reproduces locally via a *single*-quote
-wrap (`bash -c "'echo hello'"` - same exact error) - single quotes
-suppress every special character except another single quote, so
-embedded double quotes inside a single-quoted region do nothing, they're
-just inert text, which is exactly why the double-quote escape attempt
-had no effect at all.
+**Two quote-escaping attempts, both failed live.** First guess: double
+quotes - reproduced `bash -c "\"echo hello\""` locally, matched the
+error exactly, tried escaping with `:" ; cmd ; ":`. Live test: **failed
+identically**, this time reporting the entire double-quote-escaped
+string (escape characters included) as one not-found command. That
+specific new symptom only reproduces locally via a *single*-quote wrap
+(`bash -c "'echo hello'"`) - single quotes suppress every special
+character except another single quote, so the embedded double quotes
+did nothing. Switched to `:' ; cmd ; ':` (single-quote version) and
+tried again live: **failed identically again** - the entire
+single-quote-escaped string, escape characters included, reported as
+one not-found command.
 
-**The actual fix**: prepend `:' ; ` and append ` ; ':` to whatever real
-command you want to run. This makes the extra *single* quote Concert
-adds close immediately after a harmless `:` (bash no-op) command, runs
-the real command completely unquoted so `&&`/`;`/spaces all behave as
-real shell syntax, then reopens a quote right before the trailing one
-closes it. Verified end-to-end for real, twice (once per quote-character
-guess) - not just in local `bash -c` simulation: sent the exact escaped
-`RunScan` command over a real SSH session to the real test host, wrapped
-in the same extra quote Concert adds, and got a clean exit 0 with the
-full valid Trivy JSON report on the second (single-quote) attempt.
+At that point, two different quote-character guesses had each
+reproduced the OLD symptom locally but produced a NEW, differently-
+escaped failure live, every time - meaning `Common/SSH`'s actual wrapping
+mechanism was never actually being defeated by either attempt, and
+there was no reliable way to keep guessing at the exact quoting scheme
+from outside. Concluded this can't be fixed by re-quoting the command
+string at all.
 
-Every `Common/SSH` command in both this workflow and `Remediate_SSH_Host`
-now goes through this `ssh_escape()` wrapper before being set as the
-`command` input - including `InstallTrivy`, which needed it just as much
-even though its failure was invisible before.
+## The actual fix: sidestep `command` entirely for anything beyond a bare word
+
+Bisection had already shown a bare single word (`whoami`, no arguments,
+no operators) reliably succeeds through `Common/SSH`. So instead of
+trying to smuggle a multi-word script through `command`, the real script
+now goes through **`Common/SFTP/SFTP Put File`** (writes the file's exact
+bytes directly - `mode: "0755"` makes it executable on upload, no `chmod`
+command needed), gets invoked via **`Common/SSH`** using *only its bare
+path* as `command` (a genuine single word, e.g. `/tmp/trivy_scan.sh` -
+the one case already proven to work), and its output comes back via
+**`Common/SFTP/SFTP Get File`** instead of `cat` over SSH stdout. No
+`Common/SSH` command in this workflow (or `Remediate_SSH_Host`) is ever
+more than one word anymore.
+
+Verified end-to-end against the real target host, not a local
+simulation: wrote the script via a heredoc over direct SSH, `chmod 755`,
+invoked it by bare path alone, and confirmed a clean exit 0 with the
+full valid Trivy JSON output written to the expected file - exactly the
+sequence this workflow now performs through native blocks instead.
+
+`InstallTrivy` as its own separate step is gone too - folded into the
+same uploaded script (idempotent install-check + scan in one file), so
+there's one script, one SSH invocation (wrapped in the retry loop), one
+SFTP fetch, instead of two separate `Common/SSH` calls where the first
+one's result was never actually checked.
 
 **Still unconfirmed**: whether `Ansible/Playbook`'s multi-line YAML
 `playbook` input hits the same class of bug - that's a different code
@@ -175,26 +198,34 @@ a bare `JSON.parse` crash if this happens again.
 
 ## What it does
 
-1. **`InstallTrivy`** (`Common/SSH`): `authKey=$ssh_auth`, installs Trivy
-   on the target if not already present (idempotent).
-2. **`RunScan`** (`Common/SSH`): runs `trivy rootfs --format json` against
-   `/` on the target (a small shell-level retry loop handles Trivy's
-   vulnerability-DB download being occasionally rate-limited), writes to
-   a remote temp file, `cat`s it back, deletes the temp file.
-3. **`BuildVmScanCsv`** (plain JS `function` block): parses the JSON,
+1. **`UploadScanScript`** (`Common/SFTP/SFTP Put File`): writes a small
+   script (`#!/bin/bash` + idempotent trivy install-check + the actual
+   `trivy rootfs --format json` scan, output to `/tmp/trivy-scan.json`)
+   to `/tmp/trivy_scan.sh` on the target, `mode: "0755"` so it's
+   executable immediately - no separate `chmod` needed.
+2. **`RetryScan`** (`while` loop, up to 5 attempts / 5s apart): runs
+   **`RunScan`** (`Common/SSH`, `command` = just `/tmp/trivy_scan.sh`,
+   nothing else - a genuine single word) each iteration, checking
+   `exitcode === 0` to decide whether to retry.
+3. **`FetchScanResult`** (`Common/SFTP/SFTP Get File` on
+   `/tmp/trivy-scan.json`): retrieves the scan output directly - no `cat`
+   over SSH stdout involved.
+4. **`BuildVmScanCsv`** (plain JS `function` block): parses the JSON,
    keeps only `Class == "os-pkgs"` vulnerabilities (excludes `lang-pkgs`
    findings, e.g. Trivy's own bundled Go dependencies), and emits the
    Concert-native `vm_scan` CSV, one row per CVE, using `$target_host` for
    the Host IPAddress/Host Name columns.
-4. **`IngestScan`**
+5. **`IngestScan`**
    (`system/IBM/Concert v2/Import Data/Upload Files to Concert`): uploads
    the CSV with `data_type: "vm_scan"`, `scanner_name: "concert"`.
 
 Unlike the repo/image scans, Trivy runs **on the remote host itself**
 (there's no "scan a live machine over the network" mode in Trivy) - the
-SSH blocks just drive it remotely and relay the JSON output back. The
-target host ends up with Trivy installed on it afterwards (left in place,
-same tradeoff as any first-run agent install).
+uploaded script just runs it there. The target host ends up with Trivy
+installed on it afterwards (left in place, same tradeoff as any
+first-run agent install), along with the small script at
+`/tmp/trivy_scan.sh` (also left in place - harmless, re-used/overwritten
+on the next run, cleared on reboot anyway).
 
 ## Inputs
 
@@ -222,19 +253,29 @@ Concert Workflows console -> Workflows -> Import -> `Trivy_SSH_Host_Scan.zip`
 
 ## Verified vs. not verified
 
-**Verified locally**:
-- `RunScan`'s shell command passes `bash -n`.
-- `BuildVmScanCsv`'s JS was actually *executed* (not just syntax-checked)
-  in Node against a sample Trivy JSON report containing both `os-pkgs`
-  and `lang-pkgs` findings, plus a description with embedded commas and
-  quotes - confirmed `lang-pkgs` is excluded and the CSV escaping is
-  correct (round-tripped back through Python's own `csv` module reader).
+**Verified end-to-end against the real target host** (not a local
+simulation): wrote the exact script content via a heredoc over direct
+SSH, `chmod 755`'d it, invoked it by bare path alone, and got a clean
+exit 0 with the full valid Trivy JSON output in the expected file -
+exactly the sequence `UploadScanScript` -> `RunScan` -> `FetchScanResult`
+now performs through native blocks.
+
+**Verified locally in Node**:
+- `BuildVmScanCsv`'s JS was actually *executed* against a sample Trivy
+  JSON report containing both `os-pkgs` and `lang-pkgs` findings, plus a
+  description with embedded commas and quotes - confirmed `lang-pkgs` is
+  excluded and the CSV escaping is correct (round-tripped back through
+  Python's own `csv` module reader).
 - Every block's action path and input names were copied directly from
   real, working IBM-published workflows, not guessed from a schema file.
 
 **Not verified - genuinely unconfirmed**:
-- A live run with the new CSV format hasn't happened yet - the previous
-  live run (confirmed working end-to-end, `202 Accepted`) used the old
-  CycloneDX/`code_scan`-style payload that turned out not to attribute
-  CVEs to the host distinctly in Arena view. This CSV version is the fix
-  for that, not yet itself confirmed live.
+- A live run of this exact SFTP-based version through Concert itself
+  hasn't happened yet - everything above was verified either via direct
+  SSH (bypassing Concert) or locally in Node, since the previous two
+  live attempts (both assuming `Common/SSH` could run a multi-word
+  command with the right escaping) each failed for a new reason. This is
+  the version to actually trigger next.
+- Whether `Common/SFTP`'s `mode: "0755"` really does what the schema
+  says (sets the uploaded file executable) - inferred from the block's
+  own field description, not independently tested through Concert.
