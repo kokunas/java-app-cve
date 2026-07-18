@@ -18,6 +18,10 @@
                     "name": "command",
                     "value": "\"command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)\"",
                     "type": "const"
+                },
+                {
+                    "name": "timeout",
+                    "value": "120"
                 }
             ]
         },
@@ -33,12 +37,16 @@
                     "name": "command",
                     "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-scan.json\\nsudo rm -f /tmp/trivy-scan.json\"",
                     "type": "const"
+                },
+                {
+                    "name": "timeout",
+                    "value": "300"
                 }
             ]
         },
         {
             "name": "BuildVmScanCsv",
-            "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nconst report = JSON.parse($RunScan.result);\nconst rows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\nrows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        rows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\n$vm_scan_csv = rows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
+            "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nif (!$RunScan.result || !$RunScan.result.trim()) {\n    throw new Error(\n        \"RunScan produced no output (exitcode=\" + $RunScan.exitcode + \", error=\" + $RunScan.error +\n        \") - likely the SSH block's inactivity timeout fired before the trivy scan finished writing \" +\n        \"its output file. Check the timeout input on the RunScan block.\"\n    );\n}\nconst report = JSON.parse($RunScan.result);\nconst rows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\nrows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        rows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\n$vm_scan_csv = rows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
         },
         {
             "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",

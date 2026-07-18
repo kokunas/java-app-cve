@@ -58,6 +58,19 @@ CVE,Host IPAddress,Package,Package Version,Package Path,severity,Score,hasFix,Fi
 ```
 with `metadata: {"scanner_name": "concert"}` and `fileType: "csv"`.
 
+## Another real bug found live: `Common/SSH`'s default 30s inactivity timeout
+
+The first live run of this CSV version failed at `BuildVmScanCsv` with
+`Unexpected end of JSON input` - `$RunScan.result` was empty. Trivy's
+`--quiet` scan produces no stdout while it works (downloading its
+vulnerability DB, then scanning), and `Common/SSH`'s `timeout` input
+defaults to 30 seconds of *inactivity*, not a hard ceiling - a real scan
+can easily run past that in silence and get killed mid-way, leaving
+nothing in the remote temp file for `cat` to return. Fixed by setting
+`timeout: 300` explicitly on `InstallTrivy`/`RunScan`, and
+`BuildVmScanCsv` now throws a clear error naming the exit code instead of
+a bare `JSON.parse` crash if this happens again.
+
 ## What it does
 
 1. **`InstallTrivy`** (`Common/SSH`): `authKey=$ssh_auth`, installs Trivy
