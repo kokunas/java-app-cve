@@ -109,22 +109,17 @@ retries don't interfere with each other).
 same error recurred for the pure `&&`-chained command too - `for`/`;`
 were never actually the cause. Root-caused properly below.
 
-## The actual root cause: `Common/SSH` wraps `command` in an extra pair of double quotes
+## The actual root cause: `Common/SSH` wraps `command` in an extra pair of single quotes
 
 Isolated with a bisection down to the simplest possible case: a
 single-word command (`whoami`) succeeded through `Common/SSH` and
 returned `ec2-user` correctly. A two-word command (`echo hello`) failed
 with `bash: line 1: echo hello: command not found` - note it's the
 *entire two-word string* being reported as one not-found command name.
-Reproduced this exactly, locally, with `bash -c "\"echo hello\""` (a
-command wrapped in one extra pair of literal double quotes before being
-handed to `-c`) - identical error, character for character. A
-single-quoted word doesn't change how bash parses it, so single-word
-commands were never actually a real test of anything - `Common/SSH`
-appears to always wrap whatever we pass as `command` in an extra pair of
-double quotes before the remote shell sees it, and bash's own quoting
-then swallows every space in a multi-word command into one big
-single-quoted token, which cannot resolve to any real executable.
+`Common/SSH` appears to always wrap whatever we pass as `command` in one
+extra pair of quotes before the remote shell sees it, and bash's own
+quoting then swallows every space in a multi-word command into one big
+single token, which cannot resolve to any real executable.
 
 This also means `InstallTrivy` was **silently failing this entire time**
 - nothing downstream ever checked its result, and the target host
@@ -132,17 +127,28 @@ happened to already have Trivy installed from manually testing it
 directly over SSH during this same debugging session, which is why its
 failure was never visible.
 
-**The fix**: since the extra quote is always exactly one pair wrapped
-around the whole string, it can be defeated from inside the command
-itself - prepend `:" ; ` and append ` ; ":` to whatever real command you
-want to run. This makes the extra quote Concert adds close immediately
-after a harmless `:` (bash no-op) command, runs the real command
-completely unquoted so `&&`/`;`/spaces all behave as real shell syntax,
-then reopens a quote right before the trailing one closes it. Verified
-end-to-end for real, not just in local `bash -c` simulation: sent the
-exact escaped `RunScan` command over a real SSH session to the real test
-host, wrapped in the same extra quote Concert adds, and got a clean exit
-0 with the full valid Trivy JSON report - no partial/simulated result.
+**Getting the exact quote character right took two attempts.** First
+guess: double quotes - reproduced `bash -c "\"echo hello\""` locally,
+matched the error exactly, so tried escaping with `:" ; cmd ; ":`. Lived
+tested: **failed identically**, this time reporting the entire
+double-quote-escaped string (escape characters included) as one
+not-found command. That only reproduces locally via a *single*-quote
+wrap (`bash -c "'echo hello'"` - same exact error) - single quotes
+suppress every special character except another single quote, so
+embedded double quotes inside a single-quoted region do nothing, they're
+just inert text, which is exactly why the double-quote escape attempt
+had no effect at all.
+
+**The actual fix**: prepend `:' ; ` and append ` ; ':` to whatever real
+command you want to run. This makes the extra *single* quote Concert
+adds close immediately after a harmless `:` (bash no-op) command, runs
+the real command completely unquoted so `&&`/`;`/spaces all behave as
+real shell syntax, then reopens a quote right before the trailing one
+closes it. Verified end-to-end for real, twice (once per quote-character
+guess) - not just in local `bash -c` simulation: sent the exact escaped
+`RunScan` command over a real SSH session to the real test host, wrapped
+in the same extra quote Concert adds, and got a clean exit 0 with the
+full valid Trivy JSON report on the second (single-quote) attempt.
 
 Every `Common/SSH` command in both this workflow and `Remediate_SSH_Host`
 now goes through this `ssh_escape()` wrapper before being set as the
