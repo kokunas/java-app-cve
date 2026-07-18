@@ -58,6 +58,27 @@ CVE,Host IPAddress,Package,Package Version,Package Path,severity,Score,hasFix,Fi
 ```
 with `metadata: {"scanner_name": "concert"}` and `fileType: "csv"`.
 
+## A third real bug found live: `Common/SSH`'s `command` field doesn't survive real newlines
+
+After fixing the timeout, the very next run failed with `bash: line 1:
+for i in 1 2 3 4 5; do\n  sudo trivy ...: No such file or directory` -
+note the literal `\n` text in that error, not an actual line break. The
+multi-line `RunScan` command (a `for` loop using real newlines to
+separate its lines) arrived at the remote shell with those newlines
+flattened to the literal two-character sequence backslash-n, so bash
+tried to parse/execute the entire script as one garbled line instead of
+running it. `InstallTrivy` (a genuinely single-line command) never hit
+this, which is what pointed at newline-handling specifically rather than
+anything else about the SSH block.
+
+Fixed by rewriting every multi-line shell command as a single physical
+line using `;`/`&&` as statement separators instead of real newlines -
+sidesteps the bug entirely regardless of its exact root cause. **The
+`Ansible/Playbook` block's `playbook` input still uses real multi-line
+YAML** (unavoidable - YAML depends on newlines for structure, and IBM's
+own official examples embed multi-line playbooks the same way) - if the
+same symptom shows up there, that's the next thing to isolate.
+
 ## Another real bug found live: `Common/SSH`'s default 30s inactivity timeout
 
 The first live run of this CSV version failed at `BuildVmScanCsv` with
