@@ -16,7 +16,7 @@
                 },
                 {
                     "name": "command",
-                    "value": "\"command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0); for i in 1 2 3 4 5; do sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json / && break; sleep 3; done; cat /tmp/trivy-pre.json; sudo rm -f /tmp/trivy-pre.json\"",
+                    "value": "\"(command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)) && sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json / && cat /tmp/trivy-pre.json && sudo rm -f /tmp/trivy-pre.json\"",
                     "type": "const"
                 },
                 {
@@ -62,7 +62,7 @@
                         },
                         {
                             "name": "command",
-                            "value": "\"for i in 1 2 3 4 5; do sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json / && break; sleep 3; done; cat /tmp/trivy-post.json; sudo rm -f /tmp/trivy-post.json\"",
+                            "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json / && cat /tmp/trivy-post.json && sudo rm -f /tmp/trivy-post.json\"",
                             "type": "const"
                         },
                         {

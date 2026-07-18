@@ -58,26 +58,40 @@ CVE,Host IPAddress,Package,Package Version,Package Path,severity,Score,hasFix,Fi
 ```
 with `metadata: {"scanner_name": "concert"}` and `fileType: "csv"`.
 
-## A third real bug found live: `Common/SSH`'s `command` field doesn't survive real newlines
+## A third real bug found live: `Common/SSH` chokes on `for` loops / `;`-separated commands
 
-After fixing the timeout, the very next run failed with `bash: line 1:
-for i in 1 2 3 4 5; do\n  sudo trivy ...: No such file or directory` -
-note the literal `\n` text in that error, not an actual line break. The
-multi-line `RunScan` command (a `for` loop using real newlines to
-separate its lines) arrived at the remote shell with those newlines
-flattened to the literal two-character sequence backslash-n, so bash
-tried to parse/execute the entire script as one garbled line instead of
-running it. `InstallTrivy` (a genuinely single-line command) never hit
-this, which is what pointed at newline-handling specifically rather than
-anything else about the SSH block.
+After fixing the timeout, the run kept failing with
+`bash: line 1: for i in 1 2 3 4 5; do sudo trivy ...: No such file or
+directory` - bash's "No such file or directory" (as opposed to "command
+not found") is specifically what it prints when it tries to look up a
+command name containing a `/` as a literal path, meaning the whole
+string was being treated as one filename to execute rather than as shell
+code to parse. First suspected this was real newlines getting flattened
+to literal `\n` (single-lining the command with `;` looked like it should
+fix it) - **it didn't**: the exact same error recurred with a genuinely
+single-line command.
 
-Fixed by rewriting every multi-line shell command as a single physical
-line using `;`/`&&` as statement separators instead of real newlines -
-sidesteps the bug entirely regardless of its exact root cause. **The
-`Ansible/Playbook` block's `playbook` input still uses real multi-line
-YAML** (unavoidable - YAML depends on newlines for structure, and IBM's
-own official examples embed multi-line playbooks the same way) - if the
-same symptom shows up there, that's the next thing to isolate.
+Isolated it by running the identical command string directly over SSH
+from outside Concert entirely (bypassing the SSH block, same target
+host, same key): it worked perfectly, first try, full valid output. That
+conclusively proves the command text itself was never the problem - the
+bug is in how Concert's `Common/SSH` block specifically invokes
+multi-statement commands. `InstallTrivy` (`A || (B | C)` - no `;`, no
+`for`) never failed; `RunScan` (`for ... ; do ... ; done`) always did.
+
+**Fixed by dropping the retry loop and chaining everything with `&&`
+only** (`trivy ... && cat ... && sudo rm -f ...`) instead of `for`/`;` -
+matches the one operator style (`||`/`|`/subshells `(...)`, now also
+`&&`) confirmed to work through this block. The retry loop existed for
+Trivy's vulnerability-DB download being occasionally rate-limited - not
+observed as an actual problem in any real test against this host, so
+dropping it is a reasonable trade for reliability. If it turns out to be
+needed later, it'll have to be restructured without `for`/bare `;`.
+
+**Still unconfirmed**: whether `Ansible/Playbook`'s multi-line YAML
+`playbook` input hits the same class of bug - that block is a different
+code path from `Common/SSH`, but if the same symptom shows up there,
+this is the section to revisit.
 
 ## Another real bug found live: `Common/SSH`'s default 30s inactivity timeout
 

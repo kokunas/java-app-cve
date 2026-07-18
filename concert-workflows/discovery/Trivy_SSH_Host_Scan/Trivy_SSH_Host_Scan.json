@@ -35,7 +35,7 @@
                 },
                 {
                     "name": "command",
-                    "value": "\"for i in 1 2 3 4 5; do sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && break; sleep 3; done; cat /tmp/trivy-scan.json; sudo rm -f /tmp/trivy-scan.json\"",
+                    "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && cat /tmp/trivy-scan.json && sudo rm -f /tmp/trivy-scan.json\"",
                     "type": "const"
                 },
                 {
