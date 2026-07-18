@@ -62,6 +62,57 @@ CVE,Host IPAddress,Package,Package Version,Package Path,severity,Score,hasFix,Fi
 ```
 with `metadata: {"scanner_name": "concert"}` and `fileType: "csv"`.
 
+## A second real bug found live: the CSV alone doesn't generate a native `OS`-type action
+
+The CSV fix above got a real CVE (`CVE-2023-45853` on a deliberately
+downgraded `zlib`, confirmed live) accepted and correctly attributed to
+the host - but no native `OS`-type auto-remediation action was generated,
+even after separately importing and running
+[Sync_AWS_Linux_Bulletin](../Sync_AWS_Linux_Bulletin) (which confirmed
+`37260` advisories inserted, including this exact CVE).
+
+Root cause, found in IBM's own documentation
+(`ibm.com/docs` -> IBM Concert -> "Configuring auto-remediation
+workflows"): **"Concert generates remediation actions only when the
+operating system name provided in the uploaded SBOM matches Concert's
+expected OS identifiers"** - for Amazon Linux, that value must be exactly
+`"amazon linux"`. Checked the official `vm_scan` API documentation
+("Uploading data via API") directly: **the only documented metadata field
+for `vm_scan` is `scanner_name`** - there is no OS field anywhere in the
+CSV format or its upload metadata. The OS identifier has to come from a
+**separate ConcertDef deploy SBOM** that registers the host as a
+`vm`-type runtime resource.
+
+Reverse-engineered the deploy SBOM shape from IBM's own
+[`concert-utils` toolkit](https://github.com/IBM/Concert/blob/main/toolkit-enablement/concert-utils/helpers)
+sample config
+(`concert-sample/templates/deploy-sbom-values.yaml.template`), since the
+raw `ConcertDef-1.0.2-Schema-deploy.json` schema file didn't show a
+matching `os`/`version` field on its `runtime-component-vm` definition -
+the toolkit's actual CLI output shape and the published JSON Schema
+file appear to have drifted:
+```yaml
+runtime:
+- name: "..."
+  type: "vm"
+  properties:
+    os: "${VM_OS_NAME}"      # must exactly match Concert's expected identifier, e.g. "amazon linux"
+    version: "${VM_OS_VERSION}"
+  network:
+    ipv4_addrs: ["..."]
+    hostname: "..."
+```
+
+`BuildDeploySbom` builds this JSON directly (`os_name`/`os_version`
+inputs, defaulting to `"amazon linux"`/`"2023"`), and `UploadDeploySbom`
+pushes it via the same
+`system/IBM/Concert v2/Import Data/Upload Files to Concert` block used
+for the CSV, with `data_type: "application_sbom"` (per IBM's docs, this
+single `data_type` covers Application, Build, *and* Deploy SBOMs - the
+distinction is only in the JSON's own internal shape). Runs **before**
+the `vm_scan` CSV upload, so the host is registered with its OS before
+CVE data gets attached to it.
+
 ## A third real bug found live: `Common/SSH` chokes on `for` loops / `;`-separated commands
 
 After fixing the timeout, the run kept failing with
@@ -198,24 +249,32 @@ a bare `JSON.parse` crash if this happens again.
 
 ## What it does
 
-1. **`UploadScanScript`** (`Common/SFTP/SFTP Put File`): writes a small
+1. **`BuildDeploySbom`** (plain JS `function` block): builds a ConcertDef
+   deploy SBOM JSON registering the target as a `vm`-type runtime with
+   `properties.os`/`properties.version` (`$os_name`/`$os_version`,
+   defaulting to `"amazon linux"`/`"2023"`) and its `network.hostname`.
+2. **`UploadDeploySbom`**
+   (`system/IBM/Concert v2/Import Data/Upload Files to Concert`,
+   `data_type: "application_sbom"`): registers the runtime *before* any
+   CVE data is attached to it.
+3. **`UploadScanScript`** (`Common/SFTP/SFTP Put File`): writes a small
    script (`#!/bin/bash` + idempotent trivy install-check + the actual
    `trivy rootfs --format json` scan, output to `/tmp/trivy-scan.json`)
    to `/tmp/trivy_scan.sh` on the target, `mode: "0755"` so it's
    executable immediately - no separate `chmod` needed.
-2. **`RetryScan`** (`while` loop, up to 5 attempts / 5s apart): runs
+4. **`RetryScan`** (`while` loop, up to 5 attempts / 5s apart): runs
    **`RunScan`** (`Common/SSH`, `command` = just `/tmp/trivy_scan.sh`,
    nothing else - a genuine single word) each iteration, checking
    `exitcode === 0` to decide whether to retry.
-3. **`FetchScanResult`** (`Common/SFTP/SFTP Get File` on
+5. **`FetchScanResult`** (`Common/SFTP/SFTP Get File` on
    `/tmp/trivy-scan.json`): retrieves the scan output directly - no `cat`
    over SSH stdout involved.
-4. **`BuildVmScanCsv`** (plain JS `function` block): parses the JSON,
+6. **`BuildVmScanCsv`** (plain JS `function` block): parses the JSON,
    keeps only `Class == "os-pkgs"` vulnerabilities (excludes `lang-pkgs`
    findings, e.g. Trivy's own bundled Go dependencies), and emits the
    Concert-native `vm_scan` CSV, one row per CVE, using `$target_host` for
    the Host IPAddress/Host Name columns.
-5. **`IngestScan`**
+7. **`IngestScan`**
    (`system/IBM/Concert v2/Import Data/Upload Files to Concert`): uploads
    the CSV with `data_type: "vm_scan"`, `scanner_name: "concert"`.
 
@@ -233,7 +292,10 @@ on the next run, cleared on reboot anyway).
 |---|---|---|
 | `ssh_auth` | yes | SSH credential name for the target host |
 | `concert_auth` | yes | IBM Concert API Key credential name |
-| `target_host` | yes | IP/hostname of the target - populates the CSV's Host IPAddress/Host Name columns, which is what Concert uses to attribute these CVEs to this specific host |
+| `target_host` | yes | IP/hostname of the target - populates the CSV's Host IPAddress/Host Name columns and the deploy SBOM's runtime hostname |
+| `application_name` / `application_version` | no | Registers/matches the application the deploy SBOM's runtime is associated with |
+| `environment_target` | no | Environment name the deploy SBOM registers this runtime under (e.g. `production`, `staging`) |
+| `os_name` / `os_version` | no | **Must exactly match one of Concert's expected SBOM OS identifiers** for OS-type auto-remediation to generate at all - see Table 1 in "Configuring auto-remediation workflows": `amazon linux` (Amazon Linux), `redhat` (RHEL), `ubuntu`, `sles` (SUSE), `oracle linux`, `windows` |
 
 ## Trigger payload
 
@@ -241,7 +303,12 @@ on the next run, cleared on reboot anyway).
 {
   "ssh_auth": "concert-cve-ssh-key",
   "concert_auth": "concert-api-auth",
-  "target_host": "35.158.156.105"
+  "target_host": "35.158.156.105",
+  "application_name": "amazon-linux-demo",
+  "application_version": "1.0.0",
+  "environment_target": "production",
+  "os_name": "amazon linux",
+  "os_version": "2023"
 }
 ```
 
@@ -260,22 +327,34 @@ exit 0 with the full valid Trivy JSON output in the expected file -
 exactly the sequence `UploadScanScript` -> `RunScan` -> `FetchScanResult`
 now performs through native blocks.
 
+**Verified live end-to-end (this exact scan/CSV pipeline, pre-deploy-SBOM version)**:
+`UploadScanScript` -> `RetryScan` -> `FetchScanResult` -> `BuildVmScanCsv`
+-> `IngestScan` ran successfully through the real Concert instance
+(`202 Accepted`, `.csv` record path) and correctly attributed
+`CVE-2023-45853` to the host as a distinct resource in Arena view.
+
 **Verified locally in Node**:
 - `BuildVmScanCsv`'s JS was actually *executed* against a sample Trivy
   JSON report containing both `os-pkgs` and `lang-pkgs` findings, plus a
   description with embedded commas and quotes - confirmed `lang-pkgs` is
   excluded and the CSV escaping is correct (round-tripped back through
   Python's own `csv` module reader).
+- `BuildDeploySbom`'s JS was executed and its output round-tripped
+  through `JSON.parse` to confirm well-formed JSON matching the shape
+  reverse-engineered from IBM's toolkit sample config.
 - Every block's action path and input names were copied directly from
   real, working IBM-published workflows, not guessed from a schema file.
 
-**Not verified - genuinely unconfirmed**:
-- A live run of this exact SFTP-based version through Concert itself
-  hasn't happened yet - everything above was verified either via direct
-  SSH (bypassing Concert) or locally in Node, since the previous two
-  live attempts (both assuming `Common/SSH` could run a multi-word
-  command with the right escaping) each failed for a new reason. This is
-  the version to actually trigger next.
+**Not verified - genuinely unconfirmed, and the main open question right now**:
+- Whether the deploy SBOM (`BuildDeploySbom`/`UploadDeploySbom`) actually
+  causes Concert to generate a native `OS`-type auto-remediation action -
+  this is new, reverse-engineered from a YAML config template (not a
+  finished JSON example), since the raw published `ConcertDef-1.0.2-
+  Schema-deploy.json` schema file didn't show a matching `properties.os`
+  field on its `runtime-component-vm` definition at all (the toolkit's
+  actual behavior and the published schema file appear to have drifted).
+  If the upload gets rejected or silently ignored, that mismatch is the
+  first thing to check.
 - Whether `Common/SFTP`'s `mode: "0755"` really does what the schema
   says (sets the uploaded file executable) - inferred from the block's
   own field description, not independently tested through Concert.

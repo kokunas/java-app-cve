@@ -7,6 +7,32 @@
             "value": "Common/SSH's 'command' field cannot run a multi-word command at all in this Concert install - confirmed live: a bare single word ('whoami') runs fine, but anything with a space fails with bash reporting the ENTIRE string as one not-found command (two different quote-escaping workarounds were tried and both failed identically live, ruling out simple re-quoting). Worked around entirely: the real script is written to the target via Common/SFTP/SFTP Put File (mode 0755, no command execution involved), then invoked via Common/SSH using ONLY its bare path as 'command' (a single word, matching the one case confirmed to work), and its output is retrieved via Common/SFTP/SFTP Get File instead of `cat` over SSH stdout - no multi-word SSH command needed anywhere in this workflow."
         },
         {
+            "action": "comment",
+            "value": "Concert only generates a native OS-type auto-remediation action when the scanned host's operating system name matches Concert's expected SBOM OS identifiers (see 'Configuring auto-remediation workflows' in the official docs - 'amazon linux' for Amazon Linux). Confirmed the vm_scan CSV/API metadata has no field for this at all (only optional scanner_name is documented for vm_scan). The OS identifier has to come from a ConcertDef deploy SBOM registering the host as a 'vm'-type runtime with properties.os/properties.version - so BuildDeploySbom/UploadDeploySbom register that BEFORE the vm_scan upload attaches CVE data to it."
+        },
+        {
+            "name": "BuildDeploySbom",
+            "function": "$deploy_sbom_json = JSON.stringify({\n    spec_version: \"1.0.2\",\n    concert: {\n        deployments: [\n            {\n                output_file: $application_name + \"-deploy.json\",\n                metadata: {\n                    component_name: $application_name,\n                    number: \"1\",\n                    version: $application_version\n                },\n                environment_target: $environment_target,\n                runtime: [\n                    {\n                        name: $application_name + \"-vm\",\n                        type: \"vm\",\n                        properties: {\n                            os: $os_name,\n                            version: $os_version\n                        },\n                        network: {\n                            ipv4_addrs: [$target_host],\n                            hostname: $target_host\n                        }\n                    }\n                ]\n            }\n        ]\n    }\n});\n"
+        },
+        {
+            "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
+            "name": "UploadDeploySbom",
+            "inputs": [
+                {
+                    "name": "authKey",
+                    "value": "$concert_auth"
+                },
+                {
+                    "name": "file",
+                    "value": "{\n    \"data_type\": \"application_sbom\",\n    \"filename\": [$deploy_sbom_json]\n}"
+                },
+                {
+                    "name": "fileType",
+                    "value": "\"json\""
+                }
+            ]
+        },
+        {
             "action": "system/Common/SFTP/SFTP Put File",
             "name": "UploadScanScript",
             "inputs": [
@@ -190,8 +216,83 @@
             },
             "value": "\"\"",
             "meta": {
-                "description": "IP address or hostname of the scanned host - populates the Host IPAddress/Host Name columns so Concert attributes these CVEs to this specific host."
+                "description": "IP address or hostname of the scanned host - populates the Host IPAddress/Host Name columns so Concert attributes these CVEs to this specific host, and the deploy SBOM's runtime network/hostname."
             }
+        },
+        {
+            "name": "application_name",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"amazon-linux-demo\"",
+            "meta": {
+                "description": "Registers/matches the application this host's deploy SBOM is associated with."
+            }
+        },
+        {
+            "name": "application_version",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"1.0.0\""
+        },
+        {
+            "name": "environment_target",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"production\"",
+            "meta": {
+                "description": "Environment name the deploy SBOM registers this runtime under (e.g. production, staging)."
+            }
+        },
+        {
+            "name": "os_name",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"amazon linux\"",
+            "meta": {
+                "description": "Must match one of Concert's expected SBOM OS identifiers exactly (e.g. \"amazon linux\", \"redhat\", \"ubuntu\", \"sles\", \"oracle linux\", \"windows\") for OS-type auto-remediation actions to generate."
+            }
+        },
+        {
+            "name": "os_version",
+            "required": false,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"2023\""
+        },
+        {
+            "name": "deploy_sbom_json",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\""
         },
         {
             "name": "scan_ok",
@@ -240,9 +341,9 @@
     ],
     "meta": {
         "workerGroup": "default",
-        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, converts the result into Concert's native vm_scan CSV format (scanner_name=concert), and ingests it via the official Import Data/Upload Files to Concert block. Uses SFTP Put/Get File to sidestep a live-confirmed bug where Common/SSH's command field cannot run any multi-word command.",
+        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy: registers the host as a 'vm'-type runtime with its OS identifier via a ConcertDef deploy SBOM (required for Concert to generate OS-type auto-remediation actions), converts the Trivy result into Concert's native vm_scan CSV format, and ingests both via the official Import Data/Upload Files to Concert block. Uses SFTP Put/Get File to sidestep a live-confirmed bug where Common/SSH's command field cannot run any multi-word command.",
         "layout": "flow",
-        "numberOfBlocks": 6,
+        "numberOfBlocks": 9,
         "version": 5,
         "tags": [
             {
