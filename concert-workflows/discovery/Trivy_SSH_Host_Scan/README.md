@@ -105,10 +105,54 @@ Same pattern applied to `Remediate_SSH_Host`'s `PreScan`/`PostScanJson`
 (distinct `pre_scan_ok`/`post_scan_ok` tracking variables so the two
 retries don't interfere with each other).
 
+**Update: the `&&` fix above turned out to be incomplete.** The exact
+same error recurred for the pure `&&`-chained command too - `for`/`;`
+were never actually the cause. Root-caused properly below.
+
+## The actual root cause: `Common/SSH` wraps `command` in an extra pair of double quotes
+
+Isolated with a bisection down to the simplest possible case: a
+single-word command (`whoami`) succeeded through `Common/SSH` and
+returned `ec2-user` correctly. A two-word command (`echo hello`) failed
+with `bash: line 1: echo hello: command not found` - note it's the
+*entire two-word string* being reported as one not-found command name.
+Reproduced this exactly, locally, with `bash -c "\"echo hello\""` (a
+command wrapped in one extra pair of literal double quotes before being
+handed to `-c`) - identical error, character for character. A
+single-quoted word doesn't change how bash parses it, so single-word
+commands were never actually a real test of anything - `Common/SSH`
+appears to always wrap whatever we pass as `command` in an extra pair of
+double quotes before the remote shell sees it, and bash's own quoting
+then swallows every space in a multi-word command into one big
+single-quoted token, which cannot resolve to any real executable.
+
+This also means `InstallTrivy` was **silently failing this entire time**
+- nothing downstream ever checked its result, and the target host
+happened to already have Trivy installed from manually testing it
+directly over SSH during this same debugging session, which is why its
+failure was never visible.
+
+**The fix**: since the extra quote is always exactly one pair wrapped
+around the whole string, it can be defeated from inside the command
+itself - prepend `:" ; ` and append ` ; ":` to whatever real command you
+want to run. This makes the extra quote Concert adds close immediately
+after a harmless `:` (bash no-op) command, runs the real command
+completely unquoted so `&&`/`;`/spaces all behave as real shell syntax,
+then reopens a quote right before the trailing one closes it. Verified
+end-to-end for real, not just in local `bash -c` simulation: sent the
+exact escaped `RunScan` command over a real SSH session to the real test
+host, wrapped in the same extra quote Concert adds, and got a clean exit
+0 with the full valid Trivy JSON report - no partial/simulated result.
+
+Every `Common/SSH` command in both this workflow and `Remediate_SSH_Host`
+now goes through this `ssh_escape()` wrapper before being set as the
+`command` input - including `InstallTrivy`, which needed it just as much
+even though its failure was invisible before.
+
 **Still unconfirmed**: whether `Ansible/Playbook`'s multi-line YAML
-`playbook` input hits the same class of bug - that block is a different
-code path from `Common/SSH`, but if the same symptom shows up there,
-this is the section to revisit.
+`playbook` input hits the same class of bug - that's a different code
+path from `Common/SSH`, so this fix doesn't automatically cover it. If
+the same symptom shows up there, this is the section to revisit.
 
 ## Another real bug found live: `Common/SSH`'s default 30s inactivity timeout
 
