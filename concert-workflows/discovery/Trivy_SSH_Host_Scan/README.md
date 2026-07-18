@@ -1,68 +1,104 @@
 # 01c - Scan a remote Linux host: Trivy SSH Host Scan
 
-Custom Concert Workflow (same `system/FaaS/Python` block schema as IBM's
-official `trivy-github-scan` sample and this repo's own
-[Trivy_Image_Scan](../Trivy_Image_Scan)) that scans a **live remote Linux
-host reached over SSH** instead of a git repo or a container image -
-useful for OS-level CVE detection on a VM that isn't containerized (e.g.
-a bare RHEL/Ubuntu/etc. box), rather than the Java application dependency
+Scans a **live remote Linux host reached over SSH** with Trivy instead of
+a git repo or a container image - useful for OS-level CVE detection on a
+VM that isn't containerized, rather than the Java application dependency
 scanning the rest of this repo's workflows focus on.
+
+**Rebuilt with native Concert blocks** (`Common/SSH`, `Common/String`,
+`Common/JSON`, `Common/HTTP`, from IBM's
+[`Common` automation library](https://automation-library.ibm.com/files/files/Common_1.3.360.ssi.zip))
+instead of the original custom `system/FaaS/Python` script - every step is
+now a stock block visible/editable in Concert's own low-code editor, with
+no Python hidden inside a single opaque block. The only thing that lives
+outside the visual editor now is the SSH private key itself, and that's
+by design (see below).
+
+## Prerequisite: create a Common/SSH credential in Concert
+
+Before importing this workflow, create a stored credential:
+**Concert Administration -> Credentials -> Add -> type `Common/SSH`**,
+with:
+
+| Field | Value |
+|---|---|
+| Host | the target's IP/hostname |
+| Port | the target's SSH port |
+| Username | the target's SSH user |
+| Private Key | full PEM contents (pasted into a real multi-line textarea in this form - this is what actually fixes the `error in libcrypto` bug the FaaS/Python version hit: that bug was Concert's generic single-line trigger-payload text field mangling a multi-line key on paste, and the Credential Manager's own SSH form doesn't have that problem) |
+
+Give the credential a name (e.g. `concert-cve-ssh-key`) and use that name
+as this workflow's `ssh_auth` input - same pattern this repo's own GitHub
+remediation workflows already use for `gh_api_token`/`auth`
+(`"auth": "github_pat_java-app-cve"` referencing a stored credential by
+name, not a raw secret inline).
 
 ## What it does
 
-A `system/FaaS/Python` block:
-1. Installs `curl` + `openssh-client` inside the workflow's sandbox.
-2. Writes the supplied SSH private key to a temp file (`chmod 600`) - the
-   key is never interpolated into a shell string, only passed via `-i` to
-   the `ssh` binary.
-3. Over SSH: installs Trivy on the **target host** if not already present
-   (idempotent - `command -v trivy || curl ... | sh`), then runs
-   `trivy rootfs --scanners vuln --format cyclonedx` against `/` **on the
-   target**, writes it to a remote temp file, `cat`s it back over the same
-   SSH round-trip, then deletes the remote temp file.
-4. Same CycloneDX `specVersion` 1.6 -> 1.5 downgrade as
+1. **`InstallTrivy`** (`Common/SSH`): `authKey=$ssh_auth`, installs Trivy
+   on the target if not already present (idempotent).
+2. **`RunScan`** (`Common/SSH`): runs `trivy rootfs --format cyclonedx`
+   against `/` on the target (a small `for`/`sleep` retry loop is baked
+   into the shell command itself, since Trivy's vulnerability-DB download
+   can be rate-limited - this keeps the retry logic as plain shell, not
+   Concert-level looping), writes to a remote temp file, `cat`s it back,
+   deletes the temp file.
+3. **`PatchSpecVersion`** (`Common/String/String Replace`): regex-replaces
+   `"specVersion": "1.6"` (or any version) with `"specVersion":"1.5"` as
+   plain text - Concert 3.0.0 rejects CycloneDX 1.6 (see
    [Trivy_GitHub_Scan](../Trivy_GitHub_Scan)/[Trivy_Image_Scan](../Trivy_Image_Scan)
-   (Concert 3.0.0 rejects 1.6).
-5. Uploads the result to Concert's ingestion API
-   (`POST /ingestion/api/v1/upload_files`, `data_type=code_scan`) and
-   optionally sets `criticality`/`data_impact_risk` on the application,
-   same as the other two scan workflows.
+   for the original discovery of this). Doing this as a text substitution
+   instead of parse-patch-restringify avoids needing any JSON object-merge
+   expression syntax.
+4. **`BuildMetadataObject`** (`assign`) + **`StringifyMetadata`**
+   (`Common/JSON/JSON Stringify`): builds the ingestion metadata
+   (`scanner_name`, `application_name`, `application_version`, `target`).
+5. **`BuildAuthHeader`** (`Common/String/String Append`): concatenates
+   `"C_API_KEY "` with `$concert_api_key` for the `Authorization` header.
+6. **`UploadToConcert`** (`Common/HTTP/HTTP Request`): `POST`s to
+   `/ingestion/api/v1/upload_files` with the patched scan as a multipart
+   file attachment plus `data_type`/`metadata` fields.
 
 Unlike the repo/image scans, Trivy runs **on the remote host itself**
 (there's no "scan a live machine over the network" mode in Trivy) - the
-workflow's sandbox only drives it over SSH and relays the JSON output
-back. This means the target host ends up with Trivy installed on it
-afterwards (left in place, not cleaned up - same tradeoff as any other
-first-run agent install).
+SSH blocks just drive it remotely and relay the JSON output back. The
+target host ends up with Trivy installed on it afterwards (left in place,
+same tradeoff as any first-run agent install).
+
+## Intentionally left out of this rebuild (vs. the old Python version)
+
+- **Setting `criticality`/`data_impact_risk`** on the application after
+  ingestion - the original Python version polled `GET /applications`
+  until the newly-ingested app appeared (ingestion is async), which needs
+  a retry loop. There's no confirmed native "retry until" block, and
+  guessing at conditional/loop block syntax with zero working examples in
+  this repo felt like too much unverified surface for one rebuild. Set
+  these manually in Concert's UI after a scan, or ask if you want this
+  added back (possibly as a small standalone follow-up, native or not).
+- The `ssh_use_sudo` toggle - both hosts this was tested against (Amazon
+  Linux, and the original RHEL lab VM) needed root, so `sudo` is now
+  hardcoded into the two SSH commands rather than kept configurable.
 
 ## Inputs
 
 | Input | Required | Notes |
 |---|---|---|
-| `ssh_host` | yes | Hostname/IP of the Linux host to scan |
-| `ssh_port` | no (default `22`) | |
-| `ssh_user` | yes | |
-| `ssh_private_key` | yes | Full PEM contents, pasted as a Concert `password`-typed variable (`notLogged: true`) - **store as a Concert credential, not inline, for anything beyond a throwaway lab VM** |
-| `ssh_use_sudo` | no (default `true`) | Needed to scan `/` and install to `/usr/local/bin`. Requires **passwordless, non-interactive sudo** on the target (no `requiretty`) - the workflow never allocates a PTY or supplies a password |
-| `concert_url` / `concert_api_key` / `concert_instance_id` / `concert_allow_insecure` | same as other scan workflows | |
+| `ssh_auth` | yes | Name of the `Common/SSH` credential stored in Concert (see prerequisite above), e.g. `"concert-cve-ssh-key"` |
+| `concert_url` / `concert_api_key` / `concert_instance_id` | yes | same as other scan workflows |
 | `application_name` / `application_version` | no | Name/version to register the host as an application in Concert |
-| `criticality` / `data_impact_risk` | no | 0-5, same caveat as [Trivy_GitHub_Scan](../Trivy_GitHub_Scan) about prioritization defaulting to "Deprioritized" without these |
+| `target_label` | no | Free-text label for the scanned host, only used in the ingestion metadata (e.g. `"ec2-user@52.59.245.141"`) - purely cosmetic, no longer used to build an SSH connection since that now lives in the credential |
 
-## Trigger payload for the lab VM given for this demo
+## Trigger payload
 
 ```json
 {
-  "ssh_host": "158.175.71.20",
-  "ssh_port": 30238,
-  "ssh_user": "itzuser",
-  "ssh_private_key": "<contents of vm_ssh_key-2.vm>",
-  "ssh_use_sudo": true,
+  "ssh_auth": "concert-cve-ssh-key",
   "concert_url": "https://concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com",
   "concert_api_key": "<your Concert API key>",
   "concert_instance_id": "0000-0000-0000-0000",
-  "concert_allow_insecure": false,
-  "application_name": "rhel-lab-vm",
-  "application_version": "1.0.0"
+  "application_name": "amazon-linux-demo",
+  "application_version": "1.0.0",
+  "target_label": "ec2-user@<current host IP>"
 }
 ```
 
@@ -70,42 +106,39 @@ first-run agent install).
 
 Concert Workflows console -> Workflows -> Import -> `Trivy_SSH_Host_Scan.zip`
 (the picker greys out loose `.json` files - always import the `.zip`).
+**Delete any previously-imported version of this workflow first** - a
+stale/duplicate import was the suspected cause of a previous session
+appearing to keep running old code after a re-import.
 
-## Not verified live - network reachability is unconfirmed
+## Verified vs. not verified
 
-Unlike this repo's other two scan workflows (each explicitly re-run
-against the real repo/image/Concert instance before being committed),
-**this one could not be end-to-end verified**: from this development
-sandbox, `ssh -p 30238 itzuser@158.175.71.20` and a raw `nc -vz` both
-timed out on the TCP handshake, while unrelated general internet access
-(and reaching the Concert console URL itself) worked fine from the same
-sandbox. That rules out "no internet at all" as the cause and points at
-something specific to that host/port - most likely one of:
+**Verified locally** (without a live Concert instance):
+- The `RunScan` shell command passes `bash -n` syntax validation.
+- The `PatchSpecVersion` regex (`"specVersion"\s*:\s*"[^"]*"` ->
+  `"specVersion":"1.5"`) correctly rewrites a sample CycloneDX snippet.
+- The generated workflow JSON is well-formed and every block's inputs
+  match that block's actual variable names, cross-checked directly
+  against the extracted block definitions from IBM's `Common` library
+  zip (`SSH.json`, `String Replace.json`, `JSON Stringify.json`,
+  `String Append.json`, `HTTP Request.json`).
 
-- The VM's SSH `NodePort` (`30238`) is IP-allowlisted (e.g. only to the
-  TechZone reservation's own network or your own current IP), not open
-  to arbitrary internet egress.
-- A security-group/firewall rule scoped narrower than "public".
+**Not verified - genuinely unconfirmed, first thing to check if this
+fails**:
+- Whether `HTTP Request`'s `attachments` array-literal syntax
+  (`[{...}]`) is valid in Concert's expression language - every existing
+  example in this repo builds object literals (`{...}`), none build an
+  array literal this way.
+- Whether `body` (plain fields: `data_type`, `metadata`) and
+  `attachments` (the file) actually combine into one coherent multipart
+  request the way `curl --form data_type=... --form metadata=... --form
+  filename=@file` did in the old, proven-working Python version - or
+  whether the ingestion endpoint only sees one or the other.
+- Whether `ssh_auth` as a bare string genuinely resolves to the stored
+  credential the same way it demonstrably does for this repo's GitHub
+  blocks (same pattern, different `authType`, not independently tested
+  for `Common/SSH` specifically).
 
-**This may or may not affect Concert itself.** Concert's own FaaS sandbox
-pods run inside the OpenShift cluster backing
-`concert-concert.apps.itz-4j78fp.pok-lb.techzone.ibm.com`, which could sit
-on the same TechZone reservation's private network as the target VM (in
-which case Concert can likely reach it even though this external sandbox
-can't) - or it could be on a fully separate network (in which case
-Concert will hit the same timeout this sandbox did). **The only way to
-know for sure is to trigger this workflow from the real Concert instance
-and check the block's execution log.** If it times out there too, the fix
-is opening/allowlisting the security group for `158.175.71.20:30238` to
-wherever Concert's outbound egress actually originates from (ask your
-TechZone reservation admin or check the cluster's egress IP).
-
-Two more things worth checking once SSH does connect, before trusting the
-scan results:
-- Whether the target VM itself has outbound internet access - Trivy needs
-  to download its vulnerability DB from `ghcr.io` on first run (no
-  `--offline-scan` equivalent skips this for `rootfs` scans the way it
-  does for license lookups on `repo`/`image` scans).
-- That `itzuser`'s sudo is passwordless and doesn't require a TTY -
-  confirm with `ssh ... sudo -n true` if unsure, since this workflow
-  can't respond to an interactive password prompt.
+If the upload step fails, check the `UploadToConcert` block's own
+response/error in Concert's execution log first - that will show
+directly whether the server received `metadata/data_type` at all, which
+narrows down which of the above it is.
