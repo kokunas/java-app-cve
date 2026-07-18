@@ -7,72 +7,73 @@ scanning the rest of this repo's workflows focus on.
 
 **Rebuilt to match IBM's own published workflow patterns** (found in
 [`IBM/Concert`'s `concert-workflows/Vulnerability`](https://github.com/IBM/Concert/tree/main/concert-workflows/Vulnerability) -
-specifically `RHEL_SCAN_OSCAP_GRYPE`, `Test_Connection_to_RHEL`), after
-confirming those real, IBM-authored workflows use exactly this block
-combination for scanning/patching remote Linux hosts:
+specifically `RHEL_SCAN_OSCAP_GRYPE`, `Test_Connection_to_RHEL`,
+`Fetch_Scan_files_from_AWS_Inspector`):
 
-- `Common/SSH` for remote command execution (unchanged from the previous
-  rebuild).
-- A plain **JS `function` block** for the CycloneDX `specVersion` patch and
-  metadata-building - real, visible JavaScript in Concert's editor, not a
-  hidden Python sandbox. Confirmed this really is plain JS (not JSONata or
-  some other DSL) directly from IBM's own examples (`Object.keys()`,
-  template literals, `.map()`/`.filter()`, destructuring all appear in
-  their production workflows).
+- `Common/SSH` for remote command execution.
+- A plain **JS `function` block** for building the upload payload - real,
+  visible JavaScript in Concert's editor, not a hidden Python sandbox
+  (confirmed this really is plain JS, not JSONata, directly from IBM's own
+  examples: `Object.keys()`, template literals, `.map()`/`.filter()`).
 - The **official ingestion block**,
-  `system/IBM/Concert v2/Import Data/Upload Files to Concert`, with
-  `data_type: "vm_scan"` - not the raw HTTP/curl call this repo's other
-  scan workflows use (`code_scan`, meant for a repo/image, not a bare
-  host). This is likely the actual reason a scanned host never linked up
-  cleanly with Concert's CVE views before.
+  `system/IBM/Concert v2/Import Data/Upload Files to Concert`.
 
-## Unresolved: where do `ssh_auth` / `concert_auth` actually get created?
+## Credentials: created under the Workflows app's own settings, not Concert's main Administration menu
 
-**This is the one open question before importing.** Every block here
-needs an `authKey` pointing at a stored credential (`ssh_auth` for the
-target host, `concert_auth` for Concert's own API) - this repo's existing
-GitHub-based workflows already do the same thing successfully
-(`"auth": "github_pat_java-app-cve"`, a credential referenced by name),
-so *some* credential store for Workflows exists. But when asked, the only
-credentials UI found so far was **Administration -> Integrations ->
-Connections -> Create Connection**, and that one has a short, fixed list
-of connection types - no SSH, no generic/custom auth type.
+Both `ssh_auth` and `concert_auth` are stored credentials, created from
+**inside the Workflows app itself** (not Administration -> Integrations ->
+Connections, which is a different, unrelated list with no SSH/generic
+option). Concretely, for this demo:
 
-Two things worth checking before importing this workflow:
-1. **Look inside the Workflows app itself**, not the main Concert
-   Administration menu - a gear/settings icon on the Workflows console,
-   or a "Credentials"/"Secrets" section scoped to Workflows specifically.
-   Given this repo's GitHub workflows already reference a named credential
-   successfully, that credential had to be created *somewhere* - find that
-   same place.
-2. If truly nothing like that exists in this Concert install, the
-   fallback is to pass an **inline credential object** as the `authKey`
-   value instead of a bare string - e.g. for `ssh_auth`:
-   ```json
-   {"host": "35.158.156.105", "port": 22, "username": "ec2-user", "privateKey": "<PEM>"}
-   ```
-   directly in the trigger payload. This brings back the exact
-   multi-line-paste risk the previous rebuild was trying to avoid (a
-   generic trigger-payload text field mangling a pasted PEM), so only use
-   it if the credential-store path is genuinely unavailable.
+- `ssh_auth`: credential type **SSH** (host/port/username/private key of
+  the target).
+- `concert_auth`: credential type **IBM Concert API Key** - fields:
+  `protocol` (`https`), `host` (the Concert console hostname, no
+  `https://` prefix), `api key`, `api key type` (`C_API_KEY`),
+  `instance id` (`0000-0000-0000-0000`).
+
+Reference each by the name you gave it when creating them.
+
+## A real bug found live: `vm_scan` needs Concert's own CSV shape, not raw Trivy JSON/CycloneDX
+
+The first working version of this rebuild uploaded the patched CycloneDX
+scan directly with `data_type: "vm_scan"`. Concert accepted it
+(`202`, real CVE Findings showed up under the application), **but Arena
+view couldn't distinguish these from application-code CVEs** - no way to
+tell OS vs. app findings apart without opening each one individually.
+
+Digging into IBM's own sample data
+(`use-case-data-files/*/vulnerabilities/vm_scan/` in the `IBM/Concert`
+repo) showed why: `vm_scan` ingestion is scanner-specific, keyed by the
+`scanner_name` in the upload metadata - recognized values are
+`aws_inspector`, `nessus`, `qualys`, and a **native `concert` CSV format**
+(`vm_scan_concert_sample.csv`). `"trivy"` isn't one of them, so the
+ingestion fell back to something that stores flat findings without
+properly attributing them to a host resource.
+
+Fixed by having `BuildVmScanCsv` convert Trivy's JSON scan into that
+native CSV shape instead:
+```
+CVE,Host IPAddress,Package,Package Version,Package Path,severity,Score,hasFix,Fixed Version,Description,Host Name
+```
+with `metadata: {"scanner_name": "concert"}` and `fileType: "csv"`.
 
 ## What it does
 
 1. **`InstallTrivy`** (`Common/SSH`): `authKey=$ssh_auth`, installs Trivy
    on the target if not already present (idempotent).
-2. **`RunScan`** (`Common/SSH`): runs `trivy rootfs --format cyclonedx`
-   against `/` on the target (a small shell-level retry loop handles
-   Trivy's vulnerability-DB download being occasionally rate-limited),
-   writes to a remote temp file, `cat`s it back, deletes the temp file.
-3. **`BuildPayload`** (plain JS `function` block): regex-replaces
-   `"specVersion": "1.6"` (or any version) with `"specVersion":"1.5"` as
-   text (Concert 3.0.0 rejects CycloneDX 1.6 - see
-   [Trivy_GitHub_Scan](../Trivy_GitHub_Scan)/[Trivy_Image_Scan](../Trivy_Image_Scan)
-   for the original discovery), and builds the ingestion metadata JSON
-   string via `JSON.stringify(...)`.
+2. **`RunScan`** (`Common/SSH`): runs `trivy rootfs --format json` against
+   `/` on the target (a small shell-level retry loop handles Trivy's
+   vulnerability-DB download being occasionally rate-limited), writes to
+   a remote temp file, `cat`s it back, deletes the temp file.
+3. **`BuildVmScanCsv`** (plain JS `function` block): parses the JSON,
+   keeps only `Class == "os-pkgs"` vulnerabilities (excludes `lang-pkgs`
+   findings, e.g. Trivy's own bundled Go dependencies), and emits the
+   Concert-native `vm_scan` CSV, one row per CVE, using `$target_host` for
+   the Host IPAddress/Host Name columns.
 4. **`IngestScan`**
    (`system/IBM/Concert v2/Import Data/Upload Files to Concert`): uploads
-   the patched scan with `data_type: "vm_scan"`.
+   the CSV with `data_type: "vm_scan"`, `scanner_name: "concert"`.
 
 Unlike the repo/image scans, Trivy runs **on the remote host itself**
 (there's no "scan a live machine over the network" mode in Trivy) - the
@@ -84,20 +85,17 @@ same tradeoff as any first-run agent install).
 
 | Input | Required | Notes |
 |---|---|---|
-| `ssh_auth` | yes | Credential reference for the target host - see the open question above |
-| `concert_auth` | yes | Credential reference for Concert's own API - see the open question above |
-| `application_name` / `application_version` | no | Name/version to register the host as an application in Concert |
-| `target_label` | no | Free-text label for the scanned host, only used in the ingestion metadata (e.g. `"ec2-user@52.59.245.141"`) |
+| `ssh_auth` | yes | SSH credential name for the target host |
+| `concert_auth` | yes | IBM Concert API Key credential name |
+| `target_host` | yes | IP/hostname of the target - populates the CSV's Host IPAddress/Host Name columns, which is what Concert uses to attribute these CVEs to this specific host |
 
 ## Trigger payload
 
 ```json
 {
-  "ssh_auth": "<credential name, once you find where to create it>",
-  "concert_auth": "<credential name, once you find where to create it>",
-  "application_name": "amazon-linux-demo",
-  "application_version": "1.0.0",
-  "target_label": "ec2-user@<current host IP>"
+  "ssh_auth": "concert-cve-ssh-key",
+  "concert_auth": "concert-api-auth",
+  "target_host": "35.158.156.105"
 }
 ```
 
@@ -111,16 +109,17 @@ Concert Workflows console -> Workflows -> Import -> `Trivy_SSH_Host_Scan.zip`
 
 **Verified locally**:
 - `RunScan`'s shell command passes `bash -n`.
-- `BuildPayload`'s JS was actually *executed* (not just syntax-checked) in
-  Node against a sample CycloneDX snippet and confirmed to rewrite
-  `specVersion` correctly and produce valid metadata JSON.
+- `BuildVmScanCsv`'s JS was actually *executed* (not just syntax-checked)
+  in Node against a sample Trivy JSON report containing both `os-pkgs`
+  and `lang-pkgs` findings, plus a description with embedded commas and
+  quotes - confirmed `lang-pkgs` is excluded and the CSV escaping is
+  correct (round-tripped back through Python's own `csv` module reader).
 - Every block's action path and input names were copied directly from
-  real, working IBM-published workflows (`RHEL_SCAN_OSCAP_GRYPE`), not
-  guessed from a schema file.
+  real, working IBM-published workflows, not guessed from a schema file.
 
 **Not verified - genuinely unconfirmed**:
-- Where `ssh_auth`/`concert_auth` credentials actually get created in
-  this specific Concert install (see above).
-- The exact response/behavior of `Upload Files to Concert` for
-  `data_type: "vm_scan"` against a bare host with no real repo - this is
-  new to this rebuild and hasn't been triggered live yet.
+- A live run with the new CSV format hasn't happened yet - the previous
+  live run (confirmed working end-to-end, `202 Accepted`) used the old
+  CycloneDX/`code_scan`-style payload that turned out not to attribute
+  CVEs to the host distinctly in Arena view. This CSV version is the fix
+  for that, not yet itself confirmed live.

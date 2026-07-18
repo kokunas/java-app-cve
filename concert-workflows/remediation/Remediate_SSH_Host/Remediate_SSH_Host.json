@@ -64,23 +64,8 @@
                     ]
                 },
                 {
-                    "action": "system/Common/SSH/SSH",
-                    "name": "PostScanCdx",
-                    "inputs": [
-                        {
-                            "name": "authKey",
-                            "value": "$ssh_auth"
-                        },
-                        {
-                            "name": "command",
-                            "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format cyclonedx --quiet --output /tmp/trivy-post-cdx.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-post-cdx.json\\nsudo rm -f /tmp/trivy-post-cdx.json\"",
-                            "type": "const"
-                        }
-                    ]
-                },
-                {
                     "name": "ComparePrePost",
-                    "function": "const postReport = JSON.parse($PostScanJson.result);\nconst postFound = [];\nfor (const result of (postReport.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            postFound.push(vuln.VulnerabilityID);\n        }\n    }\n}\nconst postIds = new Set(postFound);\nconst preIds = new Set($pre_vuln_ids);\n$resolved_ids = $pre_vuln_ids.filter(id => !postIds.has(id));\n$still_present_ids = $pre_vuln_ids.filter(id => postIds.has(id));\n$remediation_ok = $still_present_ids.length === 0;\n\n$patched_post_scan = $PostScanCdx.result.replace(/\"specVersion\"\\s*:\\s*\"[^\"]*\"/, '\"specVersion\":\"1.5\"');\n$metadata_str = JSON.stringify({\n    scanner_name: \"trivy\",\n    application_name: $application_name,\n    application_version: $application_version\n});\n"
+                    "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nconst postReport = JSON.parse($PostScanJson.result);\nconst postFixableIds = [];\nconst csvRows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\ncsvRows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (postReport.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        if (vuln.FixedVersion) {\n            postFixableIds.push(vuln.VulnerabilityID);\n        }\n        csvRows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\nconst postIds = new Set(postFixableIds);\n$resolved_ids = $pre_vuln_ids.filter(id => !postIds.has(id));\n$still_present_ids = $pre_vuln_ids.filter(id => postIds.has(id));\n$remediation_ok = $still_present_ids.length === 0;\n\n$vm_scan_csv = csvRows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
                 },
                 {
                     "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
@@ -92,11 +77,11 @@
                         },
                         {
                             "name": "file",
-                            "value": "{\n    \"data_type\": \"vm_scan\",\n    \"metadata\": $metadata_str,\n    \"filename\": [$patched_post_scan]\n}"
+                            "value": "{\n    \"data_type\": \"vm_scan\",\n    \"metadata\": $metadata_str,\n    \"filename\": [$vm_scan_csv]\n}"
                         },
                         {
                             "name": "fileType",
-                            "value": "\"json\""
+                            "value": "\"csv\""
                         }
                     ]
                 },
@@ -224,6 +209,20 @@
             "value": "\"1.0.0\""
         },
         {
+            "name": "target_host",
+            "required": true,
+            "isInput": true,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "string"
+            },
+            "value": "\"\"",
+            "meta": {
+                "description": "IP address or hostname of the target - populates the Host IPAddress/Host Name columns in the vm_scan CSV so Concert attributes these CVEs to this specific host."
+            }
+        },
+        {
             "name": "pre_vuln_ids",
             "required": false,
             "isInput": false,
@@ -290,7 +289,7 @@
             "value": "false"
         },
         {
-            "name": "patched_post_scan",
+            "name": "vm_scan_csv",
             "required": false,
             "isInput": false,
             "isOutput": false,

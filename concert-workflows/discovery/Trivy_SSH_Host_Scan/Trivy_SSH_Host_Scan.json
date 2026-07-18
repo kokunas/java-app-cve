@@ -4,7 +4,7 @@
     "blocks": [
         {
             "action": "comment",
-            "value": "Rebuilt with native Concert blocks matching IBM's own published patterns (RHEL_SCAN_OSCAP_GRYPE, Apply_Amazon_Linux_Patch): Common/SSH for remote commands, a plain JS function block for the specVersion patch + metadata (no FaaS/Python sandbox), and the official system/IBM/Concert v2/Import Data/Upload Files to Concert block (data_type=vm_scan) instead of a raw HTTP call."
+            "value": "Uploads a Concert-native vm_scan CSV (CVE, Host IPAddress, Package, Package Version, Package Path, severity, Score, hasFix, Fixed Version, Description, Host Name - see IBM/Concert's use-case-data-files/vulnerabilities/vm_scan/vm_scan_concert_sample.csv), built from a Trivy JSON scan. Switched away from uploading raw CycloneDX/JSON with data_type=vm_scan after confirming live that Concert's vm_scan ingestion is format-specific per scanner_name (aws_inspector/nessus/qualys/concert) and doesn't attribute CVEs to a distinct host resource for an unrecognized scanner_name like 'trivy' - it still 202s and creates flat CVE Findings under the application, but Arena view can't differentiate them from application-code CVEs."
         },
         {
             "action": "system/Common/SSH/SSH",
@@ -31,14 +31,14 @@
                 },
                 {
                     "name": "command",
-                    "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format cyclonedx --quiet --output /tmp/trivy-scan.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-scan.json\\nsudo rm -f /tmp/trivy-scan.json\"",
+                    "value": "\"for i in 1 2 3 4 5; do\\n  sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && break\\n  sleep 3\\ndone\\ncat /tmp/trivy-scan.json\\nsudo rm -f /tmp/trivy-scan.json\"",
                     "type": "const"
                 }
             ]
         },
         {
-            "name": "BuildPayload",
-            "function": "$patched_scan = $RunScan.result.replace(/\"specVersion\"\\s*:\\s*\"[^\"]*\"/, '\"specVersion\":\"1.5\"');\n$metadata_str = JSON.stringify({\n    scanner_name: \"trivy\",\n    application_name: $application_name,\n    application_version: $application_version,\n    target: $target_label\n});"
+            "name": "BuildVmScanCsv",
+            "function": "function csvEscape(value) {\n    const str = (value === undefined || value === null) ? \"\" : String(value);\n    return '\"' + str.replace(/\"/g, '\"\"') + '\"';\n}\n\nfunction extractScore(vuln) {\n    const cvss = vuln.CVSS || {};\n    for (const source of Object.keys(cvss)) {\n        const entry = cvss[source] || {};\n        if (typeof entry.V3Score === \"number\") return entry.V3Score;\n        if (typeof entry.V2Score === \"number\") return entry.V2Score;\n    }\n    return \"\";\n}\n\nconst report = JSON.parse($RunScan.result);\nconst rows = [];\nconst header = [\"CVE\", \"Host IPAddress\", \"Package\", \"Package Version\", \"Package Path\", \"severity\", \"Score\", \"hasFix\", \"Fixed Version\", \"Description\", \"Host Name\"];\nrows.push(header.map(csvEscape).join(\",\"));\n\nfor (const result of (report.Results || [])) {\n    if (result.Class !== \"os-pkgs\") continue;\n    for (const vuln of (result.Vulnerabilities || [])) {\n        rows.push([\n            vuln.VulnerabilityID,\n            $target_host,\n            vuln.PkgName,\n            vuln.InstalledVersion,\n            \"\",\n            (vuln.Severity || \"\").toLowerCase(),\n            extractScore(vuln),\n            vuln.FixedVersion ? \"Y\" : \"N\",\n            vuln.FixedVersion || \"\",\n            vuln.Description,\n            $target_host\n        ].map(csvEscape).join(\",\"));\n    }\n}\n\n$vm_scan_csv = rows.join(\"\\n\");\n$metadata_str = JSON.stringify({scanner_name: \"concert\"});\n"
         },
         {
             "action": "system/IBM/Concert v2/Import Data/Upload Files to Concert",
@@ -50,11 +50,11 @@
                 },
                 {
                     "name": "file",
-                    "value": "{\n    \"data_type\": \"vm_scan\",\n    \"metadata\": $metadata_str,\n    \"filename\": [$patched_scan]\n}"
+                    "value": "{\n    \"data_type\": \"vm_scan\",\n    \"metadata\": $metadata_str,\n    \"filename\": [$vm_scan_csv]\n}"
                 },
                 {
                     "name": "fileType",
-                    "value": "\"json\""
+                    "value": "\"csv\""
                 }
             ]
         },
@@ -90,7 +90,7 @@
             "meta": {
                 "authType": "ANY",
                 "subType": "authentication",
-                "description": "Common/SSH credential stored in Concert (Administration -> Credentials) for the target host - host/port/username/private key never appear in this workflow's own inputs."
+                "description": "Common/SSH credential stored in Concert for the target host."
             }
         },
         {
@@ -106,34 +106,12 @@
             "meta": {
                 "authType": "ANY",
                 "subType": "authentication",
-                "description": "Stored Concert API credential (url/api key/instance id), same one used by other IBM-published workflows' Import Data / Action Insights blocks."
+                "description": "Stored Concert API credential (protocol/host/api key/instance id)."
             }
         },
         {
-            "name": "application_name",
-            "required": false,
-            "isInput": true,
-            "isOutput": false,
-            "level": "INTERMEDIATE",
-            "type": {
-                "type": "string"
-            },
-            "value": "\"amazon-linux-demo\""
-        },
-        {
-            "name": "application_version",
-            "required": false,
-            "isInput": true,
-            "isOutput": false,
-            "level": "INTERMEDIATE",
-            "type": {
-                "type": "string"
-            },
-            "value": "\"1.0.0\""
-        },
-        {
-            "name": "target_label",
-            "required": false,
+            "name": "target_host",
+            "required": true,
             "isInput": true,
             "isOutput": false,
             "level": "INTERMEDIATE",
@@ -142,11 +120,11 @@
             },
             "value": "\"\"",
             "meta": {
-                "description": "Free-text label for the scanned host, only used in the ingestion metadata (e.g. \"ec2-user@52.59.245.141\")"
+                "description": "IP address or hostname of the scanned host - populates the Host IPAddress/Host Name columns so Concert attributes these CVEs to this specific host."
             }
         },
         {
-            "name": "patched_scan",
+            "name": "vm_scan_csv",
             "required": false,
             "isInput": false,
             "isOutput": false,
@@ -170,7 +148,7 @@
     ],
     "meta": {
         "workerGroup": "default",
-        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, built from native Concert blocks matching IBM's own published workflow patterns (Common/SSH, a JS function block, and the official Import Data / Upload Files to Concert ingestion block with data_type=vm_scan).",
+        "description": "Scans a remote Linux host over SSH for OS-level vulnerabilities using Trivy, converts the result into Concert's native vm_scan CSV format (scanner_name=concert), and ingests it via the official Import Data/Upload Files to Concert block so CVEs attribute to the host as a distinct resource in Concert's Arena view.",
         "layout": "flow",
         "numberOfBlocks": 6,
         "version": 5,

@@ -47,25 +47,28 @@ trigger) - no `Config Data` needed, just a single `ssh_auth` credential.
      Ansible module, matching `Apply_Amazon_Linux_Patch`'s behavior - this
      is a real change from the previous Python version, which only warned
      about needing a reboot for kernel fixes instead of doing it), re-scans
-     (`PostScanJson` + `PostScanCdx`), compares which of the originally-
-     fixable CVE IDs are now gone (`ComparePrePost`), pushes the
-     post-remediation CycloneDX scan to Concert
+     (`PostScanJson`), compares which of the originally-fixable CVE IDs
+     are now gone and builds the Concert-native `vm_scan` CSV in the same
+     step (`ComparePrePost`), pushes it to Concert
      (`system/IBM/Concert v2/Import Data/Upload Files to Concert`,
-     `data_type: "vm_scan"`), finds any matching native `auto_remediation`
+     `data_type: "vm_scan"`, `scanner_name: "concert"` - see
+     [Trivy_SSH_Host_Scan's README](../../discovery/Trivy_SSH_Host_Scan#a-real-bug-found-live-vm_scan-needs-concerts-own-csv-shape-not-raw-trivy-jsoncyclonedx)
+     for why this needs to be Concert's own CSV format, not raw
+     Trivy JSON/CycloneDX), finds any matching native `auto_remediation`
      action (`system/IBM/Concert v2/Action Insights/Search in Actions`)
      and marks it `success`/`failed`
      (`.../Action Insights/Update Existing Action`).
    - **else**: nothing to do, sets `$result` accordingly and skips
      Ansible/re-scan/upload entirely.
 
-## Same unresolved credential-store question as Trivy_SSH_Host_Scan
+## Credentials
 
-See [Trivy_SSH_Host_Scan's README](../../discovery/Trivy_SSH_Host_Scan#unresolved-where-do-ssh_auth--concert_auth-actually-get-created) -
-`ssh_auth` (also used as the Ansible playbook's `authKey` - IBM's own
-`Test_Connection_to_RHEL` example confirms the same credential type works
-for both `Common/SSH` and `Ansible/Playbook` blocks) and `concert_auth`
-both need to resolve to *something* Concert lets you create, and that
-place hasn't been located in this install yet.
+Same as [Trivy_SSH_Host_Scan](../../discovery/Trivy_SSH_Host_Scan#credentials-created-under-the-workflows-apps-own-settings-not-concerts-main-administration-menu) -
+created from inside the Workflows app's own settings (not Concert's main
+Administration menu). `ssh_auth` is also used directly as the Ansible
+playbook's `authKey` - IBM's own `Test_Connection_to_RHEL` example
+confirms the same SSH credential type works for both `Common/SSH` and
+`Ansible/Playbook` blocks.
 
 ## `hosts: canary` is IBM's own fixed convention, not a typo
 
@@ -91,14 +94,16 @@ playbook includes it.
 |---|---|---|
 | `ssh_auth` | yes | Credential for the target host (`Common/SSH` block *and* the Ansible playbook) |
 | `concert_auth` | yes | Credential for Concert's own API |
-| `application_name` / `application_version` | no | Must match the application this host was registered as by `Trivy_SSH_Host_Scan` |
+| `target_host` | yes | IP/hostname of the target - populates the CSV's Host IPAddress/Host Name columns |
+| `application_name` / `application_version` | no | Only used for the `Search in Actions` filter - see the caveat below about whether that filter field is even real |
 
 ## Trigger payload
 
 ```json
 {
-  "ssh_auth": "<credential name>",
-  "concert_auth": "<credential name>",
+  "ssh_auth": "concert-cve-ssh-key",
+  "concert_auth": "concert-api-auth",
+  "target_host": "35.158.156.105",
   "application_name": "amazon-linux-demo",
   "application_version": "1.0.0"
 }
