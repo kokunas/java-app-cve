@@ -26,21 +26,58 @@
             ]
         },
         {
-            "action": "system/Common/SSH/SSH",
-            "name": "RunScan",
-            "inputs": [
+            "action": "while",
+            "name": "RetryScan",
+            "condition": "!$scan_ok && $scan_attempts < 5",
+            "blocks": [
                 {
-                    "name": "authKey",
-                    "value": "$ssh_auth"
+                    "action": "system/Common/SSH/SSH",
+                    "name": "RunScan",
+                    "inputs": [
+                        {
+                            "name": "authKey",
+                            "value": "$ssh_auth"
+                        },
+                        {
+                            "name": "command",
+                            "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && cat /tmp/trivy-scan.json && sudo rm -f /tmp/trivy-scan.json\"",
+                            "type": "const"
+                        },
+                        {
+                            "name": "timeout",
+                            "value": "300"
+                        }
+                    ]
                 },
                 {
-                    "name": "command",
-                    "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-scan.json / && cat /tmp/trivy-scan.json && sudo rm -f /tmp/trivy-scan.json\"",
-                    "type": "const"
+                    "action": "assign",
+                    "name": "UpdateScanOk",
+                    "variable": "$scan_ok",
+                    "value": "$RunScan.exitcode === 0"
                 },
                 {
-                    "name": "timeout",
-                    "value": "300"
+                    "action": "assign",
+                    "name": "IncrementScanAttempts",
+                    "variable": "$scan_attempts",
+                    "value": "$scan_attempts + 1"
+                },
+                {
+                    "action": "if",
+                    "name": "IfScanFailedSleep",
+                    "condition": "!$scan_ok && $scan_attempts < 5",
+                    "then": [
+                        {
+                            "action": "system/Common/Sleep",
+                            "name": "WaitBeforeRetry",
+                            "inputs": [
+                                {
+                                    "name": "seconds",
+                                    "value": "5"
+                                }
+                            ]
+                        }
+                    ],
+                    "else": []
                 }
             ]
         },
@@ -130,6 +167,28 @@
             "meta": {
                 "description": "IP address or hostname of the scanned host - populates the Host IPAddress/Host Name columns so Concert attributes these CVEs to this specific host."
             }
+        },
+        {
+            "name": "scan_ok",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "boolean"
+            },
+            "value": "false"
+        },
+        {
+            "name": "scan_attempts",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "0"
         },
         {
             "name": "vm_scan_csv",

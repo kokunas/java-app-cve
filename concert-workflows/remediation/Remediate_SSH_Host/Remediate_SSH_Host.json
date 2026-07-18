@@ -7,21 +7,58 @@
             "value": "Rebuilt to match IBM's own published remediation pattern (Apply_Amazon_Linux_Patch/Apply_Linux_Patch): Common/SSH to detect with Trivy (this repo has no Red Hat/Amazon Linux advisory-sync workflows imported, so Trivy substitutes for that), system/Ansible/Playbook to apply the fix and reboot, and the official Action Insights blocks to close out Concert's native auto_remediation action - instead of a custom Python script."
         },
         {
-            "action": "system/Common/SSH/SSH",
-            "name": "PreScan",
-            "inputs": [
+            "action": "while",
+            "name": "RetryPreScan",
+            "condition": "!$pre_scan_ok && $pre_scan_attempts < 5",
+            "blocks": [
                 {
-                    "name": "authKey",
-                    "value": "$ssh_auth"
+                    "action": "system/Common/SSH/SSH",
+                    "name": "PreScan",
+                    "inputs": [
+                        {
+                            "name": "authKey",
+                            "value": "$ssh_auth"
+                        },
+                        {
+                            "name": "command",
+                            "value": "\"(command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)) && sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json / && cat /tmp/trivy-pre.json && sudo rm -f /tmp/trivy-pre.json\"",
+                            "type": "const"
+                        },
+                        {
+                            "name": "timeout",
+                            "value": "300"
+                        }
+                    ]
                 },
                 {
-                    "name": "command",
-                    "value": "\"(command -v trivy >/dev/null 2>&1 || (curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin v0.72.0)) && sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-pre.json / && cat /tmp/trivy-pre.json && sudo rm -f /tmp/trivy-pre.json\"",
-                    "type": "const"
+                    "action": "assign",
+                    "name": "UpdatePre_scan_ok",
+                    "variable": "$pre_scan_ok",
+                    "value": "$PreScan.exitcode === 0"
                 },
                 {
-                    "name": "timeout",
-                    "value": "300"
+                    "action": "assign",
+                    "name": "IncrementPre_scan_attempts",
+                    "variable": "$pre_scan_attempts",
+                    "value": "$pre_scan_attempts + 1"
+                },
+                {
+                    "action": "if",
+                    "name": "IfPreScanFailedSleep",
+                    "condition": "!$pre_scan_ok && $pre_scan_attempts < 5",
+                    "then": [
+                        {
+                            "action": "system/Common/Sleep",
+                            "name": "WaitBeforeRetryPreScan",
+                            "inputs": [
+                                {
+                                    "name": "seconds",
+                                    "value": "5"
+                                }
+                            ]
+                        }
+                    ],
+                    "else": []
                 }
             ]
         },
@@ -53,21 +90,58 @@
                     ]
                 },
                 {
-                    "action": "system/Common/SSH/SSH",
-                    "name": "PostScanJson",
-                    "inputs": [
+                    "action": "while",
+                    "name": "RetryPostScanJson",
+                    "condition": "!$post_scan_ok && $post_scan_attempts < 5",
+                    "blocks": [
                         {
-                            "name": "authKey",
-                            "value": "$ssh_auth"
+                            "action": "system/Common/SSH/SSH",
+                            "name": "PostScanJson",
+                            "inputs": [
+                                {
+                                    "name": "authKey",
+                                    "value": "$ssh_auth"
+                                },
+                                {
+                                    "name": "command",
+                                    "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json / && cat /tmp/trivy-post.json && sudo rm -f /tmp/trivy-post.json\"",
+                                    "type": "const"
+                                },
+                                {
+                                    "name": "timeout",
+                                    "value": "300"
+                                }
+                            ]
                         },
                         {
-                            "name": "command",
-                            "value": "\"sudo trivy rootfs --scanners vuln --format json --quiet --output /tmp/trivy-post.json / && cat /tmp/trivy-post.json && sudo rm -f /tmp/trivy-post.json\"",
-                            "type": "const"
+                            "action": "assign",
+                            "name": "UpdatePost_scan_ok",
+                            "variable": "$post_scan_ok",
+                            "value": "$PostScanJson.exitcode === 0"
                         },
                         {
-                            "name": "timeout",
-                            "value": "300"
+                            "action": "assign",
+                            "name": "IncrementPost_scan_attempts",
+                            "variable": "$post_scan_attempts",
+                            "value": "$post_scan_attempts + 1"
+                        },
+                        {
+                            "action": "if",
+                            "name": "IfPostScanJsonFailedSleep",
+                            "condition": "!$post_scan_ok && $post_scan_attempts < 5",
+                            "then": [
+                                {
+                                    "action": "system/Common/Sleep",
+                                    "name": "WaitBeforeRetryPostScanJson",
+                                    "inputs": [
+                                        {
+                                            "name": "seconds",
+                                            "value": "5"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "else": []
                         }
                     ]
                 },
@@ -229,6 +303,50 @@
             "meta": {
                 "description": "IP address or hostname of the target - populates the Host IPAddress/Host Name columns in the vm_scan CSV so Concert attributes these CVEs to this specific host."
             }
+        },
+        {
+            "name": "pre_scan_ok",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "boolean"
+            },
+            "value": "false"
+        },
+        {
+            "name": "pre_scan_attempts",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "0"
+        },
+        {
+            "name": "post_scan_ok",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "boolean"
+            },
+            "value": "false"
+        },
+        {
+            "name": "post_scan_attempts",
+            "required": false,
+            "isInput": false,
+            "isOutput": false,
+            "level": "INTERMEDIATE",
+            "type": {
+                "type": "number"
+            },
+            "value": "0"
         },
         {
             "name": "pre_vuln_ids",

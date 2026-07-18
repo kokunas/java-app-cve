@@ -79,14 +79,31 @@ bug is in how Concert's `Common/SSH` block specifically invokes
 multi-statement commands. `InstallTrivy` (`A || (B | C)` - no `;`, no
 `for`) never failed; `RunScan` (`for ... ; do ... ; done`) always did.
 
-**Fixed by dropping the retry loop and chaining everything with `&&`
-only** (`trivy ... && cat ... && sudo rm -f ...`) instead of `for`/`;` -
-matches the one operator style (`||`/`|`/subshells `(...)`, now also
-`&&`) confirmed to work through this block. The retry loop existed for
-Trivy's vulnerability-DB download being occasionally rate-limited - not
-observed as an actual problem in any real test against this host, so
-dropping it is a reasonable trade for reliability. If it turns out to be
-needed later, it'll have to be restructured without `for`/bare `;`.
+**Fixed the `Common/SSH` command itself by chaining with `&&` only**
+(`trivy ... && cat ... && sudo rm -f ...`) instead of `for`/`;` - matches
+the one operator style (`||`/`|`/subshells `(...)`, now also `&&`)
+confirmed to work through this block.
+
+**The retry logic moved out of the shell entirely, into native Concert
+control blocks** - the right fix, not just a workaround: a shell-level
+`for` loop was never the correct way to retry inside a single `Common/SSH`
+call anyway, since `Common/SSH` is meant for one command execution and
+Concert's own engine already has loop/branch primitives for exactly this.
+Found the proven pattern in IBM's own `Fetch_Scan_files_from_AWS_Inspector`
+workflow, which polls a report-generation status with this exact
+combination: a `while` block (`condition`, nested `blocks`), an `if`
+checking the result, and `system/Common/Sleep` (`seconds` input) for the
+delay. `RunScan` is now wrapped:
+```
+while (!$scan_ok && $scan_attempts < 5):
+    RunScan (Common/SSH, && chained)
+    scan_ok = RunScan.exitcode === 0
+    scan_attempts += 1
+    if (!scan_ok && scan_attempts < 5): Sleep 5s
+```
+Same pattern applied to `Remediate_SSH_Host`'s `PreScan`/`PostScanJson`
+(distinct `pre_scan_ok`/`post_scan_ok` tracking variables so the two
+retries don't interfere with each other).
 
 **Still unconfirmed**: whether `Ansible/Playbook`'s multi-line YAML
 `playbook` input hits the same class of bug - that block is a different
